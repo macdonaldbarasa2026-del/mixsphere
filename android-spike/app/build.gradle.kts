@@ -6,6 +6,8 @@ plugins {
 android {
     namespace = "com.mixsphere"
     compileSdk = 35
+    buildToolsVersion = "35.0.0"
+    ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "com.mixsphere"
@@ -25,6 +27,7 @@ android {
                 arguments(
                     "-DMIXXX_ROOT=${project.projectDir.parentFile.parentFile.absolutePath}",
                     "-DCMAKE_PREFIX_PATH=${System.getenv("QT_ANDROID_CMAKE_PREFIX_PATH") ?: ""}",
+                    "-DFETCHCONTENT_BASE_DIR=${project.rootDir}/.fetchcontent",
                     "-DANDROID_STL=c++_shared"
                 )
             }
@@ -60,6 +63,7 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation("androidx.core:core-ktx:1.13.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:rules:1.6.1")
