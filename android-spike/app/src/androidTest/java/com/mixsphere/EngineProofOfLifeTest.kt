@@ -18,6 +18,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.PI
 import kotlin.math.sin
+import android.os.SystemClock
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,25 +40,23 @@ class EngineProofOfLifeTest {
         MixsphereEngine(SAMPLE_RATE).use { engine ->
             assertTrue("track load failed", engine.loadTrack(0, file.absolutePath))
 
-            val audioStarted = engine.startAudio()
-            Log.i(TAG, "audio_started=$audioStarted api=${engine.audioApi()}")
+            assertTrue("Oboe audio stream did not start", engine.startAudio())
+            Log.i(TAG, "audio_started=true api=${engine.audioApi()}")
 
             engine.setCrossfader(-1.0)
             engine.play(0, true)
-
-            val energyBefore = engine.renderBlock(2048)
-            Log.i(TAG, "energy_before=$energyBefore")
-            assertTrue("engine produced no output", energyBefore > 1.0e-6)
+            assertTrue("audio callback produced no track output", awaitEnergy(engine))
+            Log.i(TAG, "energy_playing=${engine.renderedEnergy()}")
 
             engine.setTempo(0, 1.10, true)
-            val energyKeylock = engine.renderBlock(4096)
-            Log.i(TAG, "energy_keylock_tempo_1.10=$energyKeylock")
-            assertTrue("keylock tempo change produced no output", energyKeylock > 1.0e-6)
+            assertTrue("audio callback did not apply 1.10 keylock tempo", awaitControls(engine, 1.10))
+            assertTrue("1.10 keylock tempo produced silence", awaitEnergy(engine))
+            Log.i(TAG, "energy_keylock_tempo_1.10=${engine.renderedEnergy()}")
 
             engine.setTempo(0, 0.90, true)
-            val energySlow = engine.renderBlock(4096)
-            Log.i(TAG, "energy_keylock_tempo_0.90=$energySlow")
-            assertTrue("slow keylock tempo change produced no output", energySlow > 1.0e-6)
+            assertTrue("audio callback did not apply 0.90 keylock tempo", awaitControls(engine, 0.90))
+            assertTrue("0.90 keylock tempo produced silence", awaitEnergy(engine))
+            Log.i(TAG, "energy_keylock_tempo_0.90=${engine.renderedEnergy()}")
 
             Log.i(TAG, "native_callback_micros=${engine.callbackMicros()}")
             Log.i(TAG, "oboe_estimated_latency_ms=${engine.latencyMs()}")
@@ -65,6 +64,25 @@ class EngineProofOfLifeTest {
             Log.i(TAG, "PHASE0_PROOF_OF_LIFE=PASS")
         }
         file.delete()
+    }
+
+    private fun awaitEnergy(engine: MixsphereEngine): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + 5000
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (engine.renderedEnergy() > 1.0e-6) return true
+            SystemClock.sleep(20)
+        }
+        return false
+    }
+
+    private fun awaitControls(engine: MixsphereEngine, expectedTempo: Double): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + 5000
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (kotlin.math.abs(engine.renderedTempo(0) - expectedTempo) < 0.001 &&
+                engine.renderedKeylock(0)) return true
+            SystemClock.sleep(20)
+        }
+        return false
     }
 
     private fun writeSineWav(file: File) {
@@ -88,6 +106,6 @@ class EngineProofOfLifeTest {
             buffer.putShort(value)
             buffer.putShort(value)
         }
-        RandomAccessFile(file, "rw").use { it.write(buffer.array()) }
+        RandomAccessFile(file, "rw").use { it.setLength(0); it.write(buffer.array()) }
     }
 }
