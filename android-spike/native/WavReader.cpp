@@ -8,6 +8,7 @@
 #include "WavReader.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -33,14 +34,19 @@ PcmTrack WavReader::read(const std::string& path) {
         return track;
     }
 
-    unsigned char header[44];
+    unsigned char header[12];
     in.read(reinterpret_cast<char*>(header), sizeof(header));
-    if (in.gcount() != static_cast<std::streamsize>(sizeof(header))) {
+    if (in.gcount() != static_cast<std::streamsize>(sizeof(header)) ||
+            std::memcmp(header, "RIFF", 4) != 0 || std::memcmp(header + 8, "WAVE", 4) != 0) {
         return track;
     }
-    if (std::memcmp(header, "RIFF", 4) != 0 || std::memcmp(header + 8, "WAVE", 4) != 0) {
+    const uint32_t riffSize = le32(header + 4);
+    in.seekg(0, std::ios::end);
+    const std::streamoff fileSize = in.tellg();
+    if (fileSize < 12 || riffSize > static_cast<uint64_t>(fileSize - 8)) {
         return track;
     }
+    const std::streamoff riffEnd = static_cast<std::streamoff>(riffSize) + 8;
 
     uint16_t audioFormat = 0;
     uint16_t channels = 0;
@@ -52,29 +58,43 @@ PcmTrack WavReader::read(const std::string& path) {
     in.seekg(12, std::ios::beg);
     unsigned char chunk[8];
     while (in.good()) {
+        const std::streamoff chunkHeaderOffset = static_cast<std::streamoff>(in.tellg());
+        if (chunkHeaderOffset < 0 || chunkHeaderOffset + 8 > riffEnd) {
+            break;
+        }
         in.read(reinterpret_cast<char*>(chunk), sizeof(chunk));
         if (in.gcount() != static_cast<std::streamsize>(sizeof(chunk))) {
             break;
         }
         const uint32_t size = le32(chunk + 4);
+        const std::streamoff payloadOffset = static_cast<std::streamoff>(in.tellg());
+        if (payloadOffset < 0 || size > static_cast<uint64_t>(riffEnd - payloadOffset)) {
+            return track;
+        }
         if (std::memcmp(chunk, "fmt ", 4) == 0) {
-            std::vector<unsigned char> fmt(size);
-            in.read(reinterpret_cast<char*>(fmt.data()), size);
-            if (in.gcount() != static_cast<std::streamsize>(size) || size < 16) {
+            if (size < 16 || size > 4096) {
                 return track;
             }
-            audioFormat = le16(fmt.data());
-            channels = le16(fmt.data() + 2);
-            sampleRate = le32(fmt.data() + 4);
-            bitsPerSample = le16(fmt.data() + 14);
+            unsigned char fmt[16];
+            in.read(reinterpret_cast<char*>(fmt), sizeof(fmt));
+            if (in.gcount() != static_cast<std::streamsize>(sizeof(fmt))) {
+                return track;
+            }
+            audioFormat = le16(fmt);
+            channels = le16(fmt + 2);
+            sampleRate = le32(fmt + 4);
+            bitsPerSample = le16(fmt + 14);
+            in.seekg(payloadOffset + size + (size & 1u), std::ios::beg);
         } else if (std::memcmp(chunk, "data", 4) == 0) {
             dataSize = size;
-            dataOffset = in.tellg();
+            dataOffset = payloadOffset;
+            in.seekg(payloadOffset + size + (size & 1u), std::ios::beg);
+        } else {
+            in.seekg(payloadOffset + size + (size & 1u), std::ios::beg);
         }
-        if (dataOffset >= 0) {
+        if (dataOffset >= 0 && audioFormat != 0) {
             break;
         }
-        in.seekg(size + (size & 1u), std::ios::cur);
     }
 
     if (dataOffset < 0 || (channels != 1 && channels != 2) || sampleRate == 0) {
@@ -82,6 +102,16 @@ PcmTrack WavReader::read(const std::string& path) {
     }
     if (!((audioFormat == 1 && bitsPerSample == 16) ||
             (audioFormat == 3 && bitsPerSample == 32))) {
+        return track;
+    }
+    const uint32_t bytesPerSample = bitsPerSample / 8;
+    const uint32_t bytesPerFrame = channels * bytesPerSample;
+    constexpr uint32_t kMaxDecodedBytes = 128u * 1024u * 1024u;
+    if (bytesPerFrame == 0 || dataSize % bytesPerFrame != 0 ||
+            dataSize / bytesPerFrame > static_cast<uint32_t>(
+                    std::numeric_limits<int>::max()) ||
+            static_cast<uint64_t>(dataSize / bytesPerFrame) * channels * sizeof(float) >
+                    kMaxDecodedBytes) {
         return track;
     }
 
@@ -109,7 +139,7 @@ PcmTrack WavReader::read(const std::string& path) {
                 uint32_t bits = le32(data.data() + off);
                 float value;
                 std::memcpy(&value, &bits, sizeof(value));
-                track.samples[byte] = value;
+                track.samples[byte] = std::isfinite(value) ? std::clamp(value, -1.0f, 1.0f) : 0.0f;
             }
         }
     }
