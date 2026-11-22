@@ -1,0 +1,101 @@
+name: Mixsphere Phase 0 - Android engine spike
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: phase0-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BUILDENV_BASEPATH: /home/runner/buildenv
+
+jobs:
+  native-feasibility:
+    name: NDK arm64-v8a - upstream Mixxx engine
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Free disk space
+        run: |
+          sudo apt-get autoremove -y && sudo apt-get clean
+          sudo rm -rf /home/packer /opt/az /opt/google /opt/microsoft /opt/pipx
+          sudo rm -rf /usr/lib/google-cloud-sdk /usr/local/julia1.11.7
+          sudo rm -rf /usr/share/dotnet /usr/share/swift /usr/local/share/powershell
+
+      - name: Set up Android build environment (pinned NDK 27.2.12479018 / API 35 / Qt6 vcpkg)
+        shell: bash
+        run: source tools/android_buildenv.sh setup
+
+      - name: Create build directory
+        run: mkdir -p build
+
+      - name: Configure (Android arm64-v8a)
+        working-directory: build
+        shell: bash
+        run: |
+          cmake \
+            -DBULK=ON \
+            -DQT6=ON \
+            -DQML=ON \
+            -DHID=ON \
+            -DVCPKG_TARGET_TRIPLET=arm64-android \
+            -DVCPKG_DEFAULT_HOST_TRIPLET=x64-linux-release \
+            -DCMAKE_SYSTEM_NAME=Android \
+            -DBUILD_TESTING=OFF \
+            -DBUILD_BENCH=OFF \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
+            -DWARNINGS_FATAL=OFF \
+            -DDEBUG_ASSERTIONS_FATAL=OFF \
+            -DBATTERY=ON \
+            -DBROADCAST=ON \
+            -DDOWNLOAD_MANUAL=OFF \
+            -DHID=ON \
+            -DKEYFINDER=ON \
+            -DLILV=ON \
+            -DOPUS=ON \
+            -DQTKEYCHAIN=ON \
+            -DVINYLCONTROL=ON \
+            -L \
+            .. 2>&1 | tee ../configure.log
+
+      - name: Build mixxx-lib
+        working-directory: build
+        shell: bash
+        run: cmake --build . --target mixxx-lib --parallel "$(nproc)" 2>&1 | tee ../build.log
+
+      - name: Build Android APK
+        working-directory: build
+        shell: bash
+        run: cmake --build . --target mixxx --parallel "$(nproc)" 2>&1 | tee ../apk-build.log
+
+      - name: Upload build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase0-native-feasibility-logs
+          path: |
+            configure.log
+            build.log
+            apk-build.log
+          if-no-files-found: warn
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase0-upstream-mixxx-apk
+          path: build/android-build/build/outputs/apk/**/*.apk
+          if-no-files-found: warn
