@@ -71,15 +71,10 @@ jobs:
             -L \
             .. 2>&1 | tee ../configure.log
 
-      - name: Build mixxx-lib
+      - name: Build upstream Android APK baseline
         working-directory: build
         shell: bash
-        run: cmake --build . --target mixxx-lib --parallel "$(nproc)" 2>&1 | tee ../build.log
-
-      - name: Build Android APK
-        working-directory: build
-        shell: bash
-        run: cmake --build . --target mixxx --parallel "$(nproc)" 2>&1 | tee ../apk-build.log
+        run: cmake --build . --target apk --parallel "$(nproc)" 2>&1 | tee ../apk-build.log
 
       - name: Upload build evidence
         if: always()
