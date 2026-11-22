@@ -7,14 +7,13 @@
  * ownership is retained off the audio thread for the engine lifetime.
  *
  * Keylock uses a preallocated granular overlap-add time stretcher: source is
- * read at unit rate (pitch preserved) while grains are scheduled at the
- * requested tempo. Phase 3 replaces this with Mixxx's RubberBand scaler.
+ * read at unit rate while grains are scheduled at the requested tempo. Its
+ * pitch behavior is experimental and has not been validated against a reference.
  */
 #pragma once
 
 #include <array>
 #include <atomic>
-#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -29,15 +28,17 @@ namespace mixsphere {
 static_assert(std::atomic<float>::is_always_lock_free);
 static_assert(std::atomic<bool>::is_always_lock_free);
 static_assert(std::atomic<uint32_t>::is_always_lock_free);
+static_assert(std::atomic<int>::is_always_lock_free);
 static_assert(std::atomic<const void*>::is_always_lock_free);
 
 class DeckEngine {
   public:
     struct Deck {
         std::atomic<const PcmTrack*> track{nullptr};
-        std::atomic<float> tempo{1.0f};
+        // Micro-rate fixed-point tempo plus one keylock bit; one 32-bit
+        // atomic gives the audio callback a coherent control snapshot.
+        std::atomic<uint32_t> tempoControl{1000000u};
         std::atomic<bool> playing{false};
-        std::atomic<bool> keylock{false};
         std::atomic<float> gain{1.0f};
         std::atomic<float> seekFraction{0.0f};
         std::atomic<uint32_t> seekGeneration{0};
@@ -67,9 +68,9 @@ class DeckEngine {
 
   private:
     void renderDeck(Deck& deck, float gain, std::span<float> interleaved);
-    void renderPlain(Deck& deck, const PcmTrack& track, float gain,
+    void renderPlain(Deck& deck, const PcmTrack& track, float gain, float tempo,
             std::span<float> interleaved);
-    void renderKeylocked(Deck& deck, const PcmTrack& track, float gain,
+    void renderKeylocked(Deck& deck, const PcmTrack& track, float gain, float tempo,
             std::span<float> interleaved);
     static void sampleAt(const PcmTrack& track, double position, float& left, float& right);
 
