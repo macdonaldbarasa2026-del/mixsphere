@@ -4,8 +4,10 @@
  */
 package com.mixsphere.engine
 
-class MixsphereEngine(sampleRate: Int = 48000) : AutoCloseable {
-    private val handle: Long = nativeCreate(sampleRate)
+import java.io.Closeable
+
+class MixsphereEngine(sampleRate: Int = 48000) : Closeable {
+    private var handle: Long = nativeCreate(sampleRate)
 
     init {
         require(handle != 0L) { "native engine allocation failed" }
@@ -18,13 +20,20 @@ class MixsphereEngine(sampleRate: Int = 48000) : AutoCloseable {
         nativeSetTempo(handle, deck, tempo, keylock)
     fun setCrossfader(position: Double) = nativeSetCrossfader(handle, position)
     fun renderedEnergy(): Double = nativeRenderedEnergy(handle)
-    fun renderBlock(frames: Int): Double = nativeRenderBlock(handle, frames)
+    fun renderedTempo(deck: Int): Double = nativeRenderedTempo(handle, deck)
+    fun renderedKeylock(deck: Int): Boolean = nativeRenderedKeylock(handle, deck)
     fun audioApi(): String = nativeAudioApi(handle)
     fun latencyMs(): Double = nativeLatencyMs(handle)
     fun callbackMicros(): Double = nativeCallbackMicros(handle)
     fun sampleRate(): Int = nativeSampleRate(handle)
 
-    override fun close() = nativeDestroy(handle)
+    @Synchronized
+    override fun close() {
+        if (handle != 0L) {
+            nativeDestroy(handle)
+            handle = 0L
+        }
+    }
 
     private external fun nativeCreate(sampleRate: Int): Long
     private external fun nativeDestroy(handle: Long)
@@ -34,7 +43,8 @@ class MixsphereEngine(sampleRate: Int = 48000) : AutoCloseable {
     private external fun nativeSetTempo(handle: Long, deck: Int, tempo: Double, keylock: Boolean)
     private external fun nativeSetCrossfader(handle: Long, position: Double)
     private external fun nativeRenderedEnergy(handle: Long): Double
-    private external fun nativeRenderBlock(handle: Long, frames: Int): Double
+    private external fun nativeRenderedTempo(handle: Long, deck: Int): Double
+    private external fun nativeRenderedKeylock(handle: Long, deck: Int): Boolean
     private external fun nativeAudioApi(handle: Long): String
     private external fun nativeLatencyMs(handle: Long): Double
     private external fun nativeCallbackMicros(handle: Long): Double
