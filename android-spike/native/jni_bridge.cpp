@@ -10,6 +10,7 @@
 #include <new>
 #include <exception>
 #include <string>
+#include <utility>
 
 #include "DeckEngine.h"
 #include "OboeOutput.h"
@@ -60,7 +61,13 @@ Java_com_mixsphere_engine_MixsphereEngine_nativeLoadTrack(
     if (chars == nullptr) {
         return JNI_FALSE;
     }
-    std::string fileName(chars);
+    std::string fileName;
+    try {
+        fileName.assign(chars);
+    } catch (const std::exception&) {
+        env->ReleaseStringUTFChars(path, chars);
+        return JNI_FALSE;
+    }
     env->ReleaseStringUTFChars(path, chars);
 
     try {
