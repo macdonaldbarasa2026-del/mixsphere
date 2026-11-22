@@ -14,30 +14,37 @@ class MixsphereEngine(sampleRate: Int = 48000) : Closeable {
     }
 
     @Synchronized
-    fun loadTrack(deck: Int, path: String): Boolean = nativeLoadTrack(handle, deck, path)
+    fun loadTrack(deck: Int, path: String): Boolean = nativeLoadTrack(activeHandle(), deck, path)
     @Synchronized
-    fun startAudio(): Boolean = nativeStartAudio(handle)
+    fun startAudio(): Boolean = nativeStartAudio(activeHandle())
     @Synchronized
-    fun play(deck: Int, playing: Boolean) = nativePlay(handle, deck, playing)
+    fun play(deck: Int, playing: Boolean) = nativePlay(activeHandle(), deck, playing)
     @Synchronized
     fun setTempo(deck: Int, tempo: Double, keylock: Boolean) =
-        nativeSetTempo(handle, deck, tempo, keylock)
+        nativeSetTempo(activeHandle(), deck, TempoControl.normalize(tempo), keylock)
     @Synchronized
-    fun setCrossfader(position: Double) = nativeSetCrossfader(handle, position)
+    fun setCrossfader(position: Double) = nativeSetCrossfader(activeHandle(), position)
     @Synchronized
-    fun renderedEnergy(): Double = nativeRenderedEnergy(handle)
+    fun renderedEnergy(): Double = nativeRenderedEnergy(activeHandle())
     @Synchronized
-    fun renderedTempo(deck: Int): Double = nativeRenderedTempo(handle, deck)
+    fun renderedTempo(deck: Int): Double = nativeRenderedTempo(activeHandle(), deck)
     @Synchronized
-    fun renderedKeylock(deck: Int): Boolean = nativeRenderedKeylock(handle, deck)
+    fun renderedKeylock(deck: Int): Boolean = nativeRenderedKeylock(activeHandle(), deck)
     @Synchronized
-    fun audioApi(): String = nativeAudioApi(handle)
+    fun audioApi(): String = nativeAudioApi(activeHandle())
     @Synchronized
-    fun latencyMs(): Double = nativeLatencyMs(handle)
+    fun latencyMs(): Double = nativeLatencyMs(activeHandle())
     @Synchronized
-    fun callbackMicros(): Double = nativeCallbackMicros(handle)
+    fun callbackMicros(): Double = nativeCallbackMicros(activeHandle())
     @Synchronized
-    fun sampleRate(): Int = nativeSampleRate(handle)
+    fun sampleRate(): Int = nativeSampleRate(activeHandle())
+
+    private fun activeHandle(): Long = checkNotClosed(handle)
+
+    private fun checkNotClosed(value: Long): Long {
+        check(value != 0L) { "engine is closed" }
+        return value
+    }
 
     @Synchronized
     override fun close() {
