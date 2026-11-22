@@ -15,16 +15,11 @@ android {
         versionName = "0.1.0-phase0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    }
 
-    externalNativeBuild {
-        cmake {
-            path = file("../native/CMakeLists.txt")
-            version = "3.31.6"
+        ndk {
+            abiFilters += listOf("arm64-v8a")
         }
-    }
 
-    defaultConfig {
         externalNativeBuild {
             cmake {
                 arguments(
@@ -32,8 +27,14 @@ android {
                     "-DCMAKE_PREFIX_PATH=${System.getenv("QT_ANDROID_CMAKE_PREFIX_PATH") ?: ""}",
                     "-DANDROID_STL=c++_shared"
                 )
-                abiFilters("arm64-v8a")
             }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("../native/CMakeLists.txt")
+            version = "3.31.6"
         }
     }
 
