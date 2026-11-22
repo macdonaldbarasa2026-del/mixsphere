@@ -40,7 +40,7 @@ class OboeOutput : public oboe::AudioStreamDataCallback {
     DeckEngine* m_engine;
     std::shared_ptr<oboe::AudioStream> m_stream;
     oboe::AudioApi m_api = oboe::AudioApi::Unspecified;
-    std::atomic<uint64_t> m_lastCallbackNanos{0};
+    std::atomic<uint32_t> m_lastCallbackMicros{0};
     std::atomic<int> m_actualSampleRate{0};
 };
 
