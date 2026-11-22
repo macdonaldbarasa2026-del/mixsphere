@@ -1,9 +1,9 @@
-# Mixxx 2.7.0-alpha Architecture Analysis (Mixsphere Phase 0)
+# Mixxx Android Engine Extraction Analysis (Mixsphere Phase 0)
 
 Owner: Software Engineer
-Status: Evidence gathered from the actual fork source, not from memory.
-Source of truth: `macdonaldbarasa2026-del/mixsphere` @ `main`, upstream `mixxxdj/mixxx` default branch `main`.
-Method: GitHub REST tree + raw file reads. No local clone or local build (phone is editor-only per project rules).
+Status: Preliminary source audit. The source and CI claims below still require confirmation against the checked-out fork and a passing cloud run.
+Source of truth: upstream `mixxxdj/mixxx` source files and its published Android build guide. The current workspace is not a Git checkout, so fork provenance and branch contents could not be independently confirmed here.
+Method: prior source-tree inspection recorded in this workspace plus upstream documentation. No local clone or local build (phone is editor-only per project rules).
 
 ## 1. Repository facts (measured)
 
@@ -16,7 +16,7 @@ Method: GitHub REST tree + raw file reads. No local clone or local build (phone 
 | License | `COPYING`, `LICENSE` present; project is GPL v2+ (Mixxx). Derived work must stay GPL-compatible and preserve headers. |
 | Upstream Android support | `CMakeLists.txt:60-96` sets `ANDROID`, API 35, `arm64-v8a`, NDK clang, `c++_shared`; `packaging/android/` contains `AndroidManifest.xml`, `MainActivity.java`, `UsbPermission.java`, resources; `tools/android_buildenv.sh` pins NDK `27.2.12479018`, SDK/API 35, and vcpkg triplet `arm64-android`. |
 
-**Conclusion before any code:** the spike is not "port Mixxx to Android from scratch." Upstream already ships an Android build path based on Qt for Android and a prebuilt vcpkg dependency environment. Mixsphere's problem is *shaping that engine into a native Compose app with an Oboe audio backend*, not proving C++ can compile for Android.
+**Conclusion before any code:** Mixxx already documents an Android build path using Qt for Android and a vcpkg dependency environment. The published steps build an APK with the `apk` target. Mixsphere's spike is *shaping that engine into a native Compose app with an Oboe audio backend*, and proving playback/keylock in the extracted engine. An upstream Android APK alone does not satisfy this proof. See [Mixxx's Android build guide](https://github.com/mixxxdj/mixxx/wiki/Building-for-Android).
 
 ## 2. Architecture map
 
