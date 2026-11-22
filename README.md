@@ -1,3 +1,15 @@
+# Mixsphere
+
+Mixsphere is a professional Android DJ application built as a GPL-compliant
+derivative of [Mixxx](https://github.com/mixxxdj/mixxx). It is currently in
+Phase 0 (Android port spike). See `docs/PORT_PLAN.md` for the engineering plan
+and `docs/MIXXX_ANALYSIS.md` for the source analysis.
+
+Mixsphere preserves all upstream Mixxx license headers and credits the Mixxx
+Development Team. Source is published in this repository.
+
+---
+
 # Mixxx
 
 [![GitHub latest tag](https://img.shields.io/github/tag/mixxxdj/mixxx.svg)](https://mixxx.org/download)
