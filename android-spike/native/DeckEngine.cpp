@@ -5,12 +5,15 @@
 #include "DeckEngine.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace mixsphere {
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
 constexpr int kGrainSourceFrames = 1024;
+constexpr uint32_t kKeylockBit = 0x80000000u;
+constexpr uint32_t kTempoScale = 1000000u;
 
 } // namespace
 
@@ -50,25 +53,34 @@ void DeckEngine::setTempo(int deck, double tempo, bool keylock) {
     if (deck < 0 || deck > 1) {
         return;
     }
+    if (!std::isfinite(tempo)) {
+        return;
+    }
     const double clamped = std::clamp(tempo, 0.05, 4.0);
-    m_decks[deck].tempo.store(static_cast<float>(clamped), std::memory_order_relaxed);
-    m_decks[deck].keylock.store(keylock, std::memory_order_relaxed);
+    uint32_t control = static_cast<uint32_t>(std::lround(clamped * kTempoScale));
+    if (keylock) {
+        control |= kKeylockBit;
+    }
+    m_decks[deck].tempoControl.store(control, std::memory_order_relaxed);
 }
 
 void DeckEngine::setGain(int deck, double gain) {
-    if (deck >= 0 && deck <= 1) {
+    if (deck >= 0 && deck <= 1 && std::isfinite(gain)) {
         m_decks[deck].gain.store(static_cast<float>(std::clamp(gain, 0.0, 2.0)),
                 std::memory_order_relaxed);
     }
 }
 
 void DeckEngine::setCrossfader(double position) {
+    if (!std::isfinite(position)) {
+        return;
+    }
     m_crossfader.store(static_cast<float>(std::clamp(position, -1.0, 1.0)),
             std::memory_order_relaxed);
 }
 
 void DeckEngine::seek(int deck, double fraction) {
-    if (deck < 0 || deck > 1) {
+    if (deck < 0 || deck > 1 || !std::isfinite(fraction)) {
         return;
     }
     auto& target = m_decks[deck];
@@ -113,7 +125,6 @@ void DeckEngine::sampleAt(const PcmTrack& track, double position, float& left, f
 }
 
 void DeckEngine::render(std::span<float> interleaved) {
-    const int frames = static_cast<int>(interleaved.size() / 2);
     std::fill(interleaved.begin(), interleaved.end(), 0.0f);
 
     CSAMPLE_GAIN gain1 = 0.0f;
@@ -133,8 +144,9 @@ void DeckEngine::render(std::span<float> interleaved) {
 }
 
 void DeckEngine::renderDeck(Deck& deck, float gain, std::span<float> interleaved) {
-    const float tempo = deck.tempo.load(std::memory_order_relaxed);
-    const bool keylock = deck.keylock.load(std::memory_order_relaxed);
+    const uint32_t tempoControl = deck.tempoControl.load(std::memory_order_relaxed);
+    const float tempo = static_cast<float>(tempoControl & ~kKeylockBit) / kTempoScale;
+    const bool keylock = (tempoControl & kKeylockBit) != 0;
     deck.renderedTempo.store(tempo, std::memory_order_relaxed);
     deck.renderedKeylock.store(keylock, std::memory_order_relaxed);
 
@@ -155,18 +167,18 @@ void DeckEngine::renderDeck(Deck& deck, float gain, std::span<float> interleaved
         return;
     }
     if (keylock) {
-        renderKeylocked(deck, *track, gain, interleaved);
+        renderKeylocked(deck, *track, gain, tempo, interleaved);
     } else {
-        renderPlain(deck, *track, gain, interleaved);
+        renderPlain(deck, *track, gain, tempo, interleaved);
     }
 }
 
-void DeckEngine::renderPlain(Deck& deck, const PcmTrack& track, float gain,
+void DeckEngine::renderPlain(Deck& deck, const PcmTrack& track, float gain, float tempo,
         std::span<float> interleaved) {
     const int outFrames = static_cast<int>(interleaved.size() / 2);
     const double baseRate = static_cast<double>(track.sampleRate) /
             m_outputSampleRate.load(std::memory_order_relaxed);
-    const double step = baseRate * deck.tempo.load(std::memory_order_relaxed);
+    const double step = baseRate * tempo;
     for (int i = 0; i < outFrames; ++i) {
         float left = 0.0f;
         float right = 0.0f;
@@ -182,12 +194,11 @@ void DeckEngine::renderPlain(Deck& deck, const PcmTrack& track, float gain,
     }
 }
 
-void DeckEngine::renderKeylocked(Deck& deck, const PcmTrack& track, float gain,
+void DeckEngine::renderKeylocked(Deck& deck, const PcmTrack& track, float gain, float tempo,
         std::span<float> interleaved) {
     const int outFrames = static_cast<int>(interleaved.size() / 2);
     const double baseRate = static_cast<double>(track.sampleRate) /
             m_outputSampleRate.load(std::memory_order_relaxed);
-    const double tempo = deck.tempo.load(std::memory_order_relaxed);
     const double grainOut = kGrainSourceFrames / tempo;
     const double hopOut = grainOut * 0.5;
     const double hopSource = kGrainSourceFrames * 0.5;
