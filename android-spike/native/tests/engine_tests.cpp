@@ -4,7 +4,10 @@
  */
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <fstream>
+#include <limits>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -90,6 +93,7 @@ TEST(WavReaderTest, ReadsPcm16StereoExactly) {
     EXPECT_EQ(track.frames(), 4096);
     EXPECT_NEAR(track.samples[0], source.samples[0], 1.0e-4);
     EXPECT_NEAR(track.samples[100], source.samples[100], 1.0e-4);
+    std::remove(path);
 }
 
 TEST(MixxxXfaderTest, ConstantPowerGainsAreNormalised) {
@@ -105,8 +109,8 @@ TEST(MixxxXfaderTest, ConstantPowerGainsAreNormalised) {
 
 TEST(DeckEngineTest, RendersAudibleOutput) {
     DeckEngine engine(48000);
-    auto track = std::make_shared<PcmTrack>(makeTrack(96000, 48000, 440.0));
-    engine.load(0, track);
+    auto track = std::make_unique<const PcmTrack>(makeTrack(96000, 48000, 440.0));
+    ASSERT_TRUE(engine.load(0, std::move(track)));
     engine.setCrossfader(-1.0);
     engine.play(0, true);
     std::vector<float> buffer(4096);
@@ -116,19 +120,48 @@ TEST(DeckEngineTest, RendersAudibleOutput) {
 
 TEST(DeckEngineTest, TempoChangeWithKeylockRemainsAudible) {
     DeckEngine engine(48000);
-    auto track = std::make_shared<PcmTrack>(makeTrack(96000, 48000, 440.0));
-    engine.load(0, track);
+    auto track = std::make_unique<const PcmTrack>(makeTrack(96000, 48000, 440.0));
+    ASSERT_TRUE(engine.load(0, std::move(track)));
     engine.setCrossfader(-1.0);
     engine.play(0, true);
     std::vector<float> buffer(8192);
 
     engine.setTempo(0, 1.10, true);
     engine.render(buffer);
-    const double fast = engine.renderedEnergy();
-    EXPECT_GT(fast, 1.0);
+    EXPECT_NEAR(engine.renderedTempo(0), 1.10, 0.001);
+    EXPECT_TRUE(engine.renderedKeylock(0));
+    EXPECT_GT(engine.renderedEnergy(), 1.0);
 
     engine.setTempo(0, 0.90, true);
     engine.render(buffer);
-    const double slow = engine.renderedEnergy();
-    EXPECT_GT(slow, 1.0);
+    EXPECT_NEAR(engine.renderedTempo(0), 0.90, 0.001);
+    EXPECT_TRUE(engine.renderedKeylock(0));
+    EXPECT_GT(engine.renderedEnergy(), 1.0);
+}
+
+TEST(WavReaderTest, RejectsTruncatedAndNonWaveInput) {
+    const char* path = "/tmp/mixsphere_phase0_invalid.wav";
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        out << "not a wave";
+    }
+    EXPECT_FALSE(WavReader::read(path).valid());
+    std::remove(path);
+}
+
+TEST(DeckEngineTest, IgnoresNonFiniteControls) {
+    DeckEngine engine(48000);
+    auto track = std::make_unique<const PcmTrack>(makeTrack(4096, 48000, 440.0));
+    ASSERT_TRUE(engine.load(0, std::move(track)));
+    engine.setTempo(0, std::numeric_limits<double>::quiet_NaN(), true);
+    engine.setCrossfader(std::numeric_limits<double>::infinity());
+    engine.setGain(0, std::numeric_limits<double>::quiet_NaN());
+    engine.seek(0, std::numeric_limits<double>::quiet_NaN());
+
+    engine.setCrossfader(-1.0);
+    engine.setPlaying(0, true);
+    std::vector<float> buffer(2048);
+    engine.render(buffer);
+    EXPECT_NEAR(engine.renderedTempo(0), 1.0, 1.0e-6);
+    EXPECT_GT(engine.renderedEnergy(), 0.0);
 }
