@@ -32,21 +32,30 @@ bool OboeOutput::openStream(oboe::AudioApi api, int requestedSampleRate) {
     }
     m_stream.reset(raw);
     m_api = api;
-    m_actualSampleRate.store(m_stream->getSampleRate());
+    const int actualSampleRate = m_stream->getSampleRate();
+    m_actualSampleRate.store(actualSampleRate, std::memory_order_relaxed);
+    m_engine->setOutputSampleRate(actualSampleRate);
     return true;
 }
 
 bool OboeOutput::start(int requestedSampleRate) {
-    if (!openStream(oboe::AudioApi::AAudio, requestedSampleRate) &&
-            !openStream(oboe::AudioApi::OpenSLES, requestedSampleRate)) {
-        return false;
+    if (openStream(oboe::AudioApi::AAudio, requestedSampleRate) &&
+            m_stream->requestStart() == oboe::Result::OK) {
+        return true;
     }
-    return m_stream->requestStart() == oboe::Result::OK;
+    stop();
+    if (openStream(oboe::AudioApi::OpenSLES, requestedSampleRate) &&
+            m_stream->requestStart() == oboe::Result::OK) {
+        return true;
+    }
+    stop();
+    return false;
 }
 
 void OboeOutput::stop() {
     if (m_stream) {
         m_stream->requestStop();
+        m_stream->close();
         m_stream.reset();
     }
 }
@@ -66,15 +75,12 @@ double OboeOutput::estimatedLatencyMs() const {
     if (!m_stream) {
         return -1.0;
     }
-    const auto latency = m_stream->getEstimatedOutputLatency();
-    if (!latency) {
-        return -1.0;
-    }
-    return static_cast<double>(latency.value()->count()) / 1000000.0;
+    const auto latency = m_stream->calculateLatencyMillis();
+    return latency ? latency.value() : -1.0;
 }
 
 double OboeOutput::lastCallbackMicros() const {
-    return static_cast<double>(m_lastCallbackNanos.load(std::memory_order_relaxed)) / 1000.0;
+    return static_cast<double>(m_lastCallbackMicros.load(std::memory_order_relaxed));
 }
 
 int OboeOutput::actualSampleRate() const {
@@ -88,8 +94,8 @@ oboe::DataCallbackResult OboeOutput::onAudioReady(oboe::AudioStream* stream, voi
     m_engine->render(std::span<float>(static_cast<float*>(audioData),
             static_cast<size_t>(numFrames) * channels));
     const auto end = std::chrono::steady_clock::now();
-    m_lastCallbackNanos.store(
-            static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+    m_lastCallbackMicros.store(
+            static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::microseconds>(
                     end - begin).count()),
             std::memory_order_relaxed);
     return oboe::DataCallbackResult::Continue;
