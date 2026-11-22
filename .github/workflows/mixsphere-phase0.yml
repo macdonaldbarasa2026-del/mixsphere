@@ -31,15 +31,33 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Cache Android dependencies
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/buildenv
+          key: ${{ runner.os }}-mixsphere-android-arm64-${{ hashFiles('tools/android_buildenv.sh') }}
       - name: Set up Android SDK and NDK
         shell: bash
         run: source tools/android_buildenv.sh setup
+
+      - name: Set up pinned Android SDK packages
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=${ANDROID_SDK}" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK}" >> "$GITHUB_ENV"
+          sdkmanager "cmake;3.31.6"
+      - name: Set up pinned JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17.0.21.1+2'
+
       - name: Export Qt prefix
         shell: bash
         run: echo "QT_ANDROID_CMAKE_PREFIX_PATH=${MIXXX_VCPKG_ROOT}/installed/arm64-android" >> "$GITHUB_ENV"
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 8.9
+          gradle-version: '8.9'
       - name: Run JVM tests
         working-directory: android-spike
         run: gradle testDebugUnitTest --stacktrace
@@ -75,9 +93,30 @@ jobs:
           sudo rm -rf /usr/lib/google-cloud-sdk /usr/local/julia1.11.7
           sudo rm -rf /usr/share/dotnet /usr/share/swift /usr/local/share/powershell
 
+      - name: Cache Android dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            /home/runner/buildenv
+            android-spike/.fetchcontent
+          key: ${{ runner.os }}-mixsphere-android-arm64-${{ hashFiles('tools/android_buildenv.sh', 'android-spike/native/CMakeLists.txt') }}
+
       - name: Set up pinned Android build environment
         shell: bash
         run: source tools/android_buildenv.sh setup
+
+      - name: Set up pinned Android SDK packages
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=${ANDROID_SDK}" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK}" >> "$GITHUB_ENV"
+          sdkmanager "cmake;3.31.6"
+
+      - name: Set up pinned JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17.0.21.1+2'
 
       - name: Export Qt prefix for native spike
         shell: bash
@@ -88,14 +127,19 @@ jobs:
       - name: Build native engine with Gradle/NDK
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 8.9
+          gradle-version: '8.9'
 
       - name: Stage Qt shared libraries for packaging
         shell: bash
         run: |
           mkdir -p android-spike/app/src/main/jniLibs/arm64-v8a
-          cp "${QT_ANDROID_CMAKE_PREFIX_PATH}"/lib/*.so \
-             android-spike/app/src/main/jniLibs/arm64-v8a/ 2>/dev/null || true
+          shopt -s nullglob
+          qt_libraries=("${QT_ANDROID_CMAKE_PREFIX_PATH}"/lib/*.so)
+          if ((${#qt_libraries[@]} == 0)); then
+            echo "No Qt Android shared libraries found under ${QT_ANDROID_CMAKE_PREFIX_PATH}/lib" >&2
+            exit 1
+          fi
+          cp "${qt_libraries[@]}" android-spike/app/src/main/jniLibs/arm64-v8a/
           ls -la android-spike/app/src/main/jniLibs/arm64-v8a/ | head -30
 
       - name: Assemble debug APK
@@ -130,9 +174,30 @@ jobs:
           sudo rm -rf /usr/lib/google-cloud-sdk /usr/local/julia1.11.7
           sudo rm -rf /usr/share/dotnet /usr/share/swift /usr/local/share/powershell
 
+      - name: Cache Android dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            /home/runner/buildenv
+            android-spike/.fetchcontent
+          key: ${{ runner.os }}-mixsphere-android-arm64-${{ hashFiles('tools/android_buildenv.sh', 'android-spike/native/CMakeLists.txt') }}
+
       - name: Set up pinned Android build environment
         shell: bash
         run: source tools/android_buildenv.sh setup
+
+      - name: Set up pinned Android SDK packages
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=${ANDROID_SDK}" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK}" >> "$GITHUB_ENV"
+          sdkmanager "cmake;3.31.6"
+
+      - name: Set up pinned JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17.0.21.1+2'
 
       - name: Export Qt prefix
         shell: bash
@@ -141,14 +206,19 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 8.9
+          gradle-version: '8.9'
 
       - name: Stage Qt shared libraries
         shell: bash
         run: |
           mkdir -p android-spike/app/src/main/jniLibs/arm64-v8a
-          cp "${QT_ANDROID_CMAKE_PREFIX_PATH}"/lib/*.so \
-             android-spike/app/src/main/jniLibs/arm64-v8a/ 2>/dev/null || true
+          shopt -s nullglob
+          qt_libraries=("${QT_ANDROID_CMAKE_PREFIX_PATH}"/lib/*.so)
+          if ((${#qt_libraries[@]} == 0)); then
+            echo "No Qt Android shared libraries found under ${QT_ANDROID_CMAKE_PREFIX_PATH}/lib" >&2
+            exit 1
+          fi
+          cp "${qt_libraries[@]}" android-spike/app/src/main/jniLibs/arm64-v8a/
 
       - name: Run instrumented proof of life
         uses: reactivecircus/android-emulator-runner@v2
@@ -162,8 +232,11 @@ jobs:
           script: |
             adb logcat -c
             gradle connectedDebugAndroidTest --stacktrace 2>&1 | tee ../instrumented.log
-            adb logcat -d -s MixspherePhase0:I > ../phase0-logcat.txt || true
+            adb logcat -d -s MixspherePhase0:I > ../phase0-logcat.txt
             cat ../phase0-logcat.txt
+            grep -F "PHASE0_PROOF_OF_LIFE=PASS" ../phase0-logcat.txt
+            grep -E "native_callback_micros=[1-9][0-9]*" ../phase0-logcat.txt
+            grep -E "oboe_estimated_latency_ms=-?[0-9]+([.][0-9]+)?" ../phase0-logcat.txt
 
       - name: Upload proof-of-life evidence
         if: always()
