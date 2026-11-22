@@ -16,17 +16,28 @@ constexpr int kGrainSourceFrames = 1024;
 
 DeckEngine::DeckEngine(int outputSampleRate) : m_outputSampleRate(outputSampleRate) {
     for (auto& deck : m_decks) {
-        deck.gain.store(1.0);
+        deck.gain.store(1.0f, std::memory_order_relaxed);
     }
 }
 
-void DeckEngine::load(int deck, std::shared_ptr<const PcmTrack> track) {
-    if (deck < 0 || deck > 1) {
-        return;
+void DeckEngine::setOutputSampleRate(int sampleRate) {
+    if (sampleRate > 0) {
+        m_outputSampleRate.store(sampleRate, std::memory_order_relaxed);
     }
-    m_decks[deck].position = 0.0;
-    m_decks[deck].outputTime = 0.0;
-    m_decks[deck].track.store(std::move(track));
+}
+
+bool DeckEngine::load(int deck, std::unique_ptr<const PcmTrack> track) {
+    if (deck < 0 || deck >= static_cast<int>(m_decks.size()) || !track || !track->valid()) {
+        return false;
+    }
+    std::lock_guard lock(m_trackMutex);
+    const PcmTrack* published = track.get();
+    m_ownedTracks.push_back(std::move(track));
+    auto& target = m_decks[deck];
+    target.track.store(published, std::memory_order_release);
+    target.seekFraction.store(0.0f, std::memory_order_relaxed);
+    target.seekGeneration.fetch_add(1, std::memory_order_release);
+    return true;
 }
 
 void DeckEngine::setPlaying(int deck, bool playing) {
@@ -40,28 +51,45 @@ void DeckEngine::setTempo(int deck, double tempo, bool keylock) {
         return;
     }
     const double clamped = std::clamp(tempo, 0.05, 4.0);
-    m_decks[deck].tempo.store(clamped, std::memory_order_relaxed);
+    m_decks[deck].tempo.store(static_cast<float>(clamped), std::memory_order_relaxed);
     m_decks[deck].keylock.store(keylock, std::memory_order_relaxed);
 }
 
 void DeckEngine::setGain(int deck, double gain) {
     if (deck >= 0 && deck <= 1) {
-        m_decks[deck].gain.store(std::clamp(gain, 0.0, 2.0), std::memory_order_relaxed);
+        m_decks[deck].gain.store(static_cast<float>(std::clamp(gain, 0.0, 2.0)),
+                std::memory_order_relaxed);
     }
 }
 
 void DeckEngine::setCrossfader(double position) {
-    m_crossfader.store(std::clamp(position, -1.0, 1.0), std::memory_order_relaxed);
+    m_crossfader.store(static_cast<float>(std::clamp(position, -1.0, 1.0)),
+            std::memory_order_relaxed);
 }
 
 void DeckEngine::seek(int deck, double fraction) {
     if (deck < 0 || deck > 1) {
         return;
     }
-    auto track = m_decks[deck].track.load();
-    if (track && track->frames() > 0) {
-        m_decks[deck].position = std::clamp(fraction, 0.0, 1.0) * track->frames();
+    auto& target = m_decks[deck];
+    std::lock_guard lock(m_trackMutex);
+    target.seekFraction.store(static_cast<float>(std::clamp(fraction, 0.0, 1.0)),
+            std::memory_order_relaxed);
+    target.seekGeneration.fetch_add(1, std::memory_order_release);
+}
+
+float DeckEngine::renderedTempo(int deck) const {
+    if (deck < 0 || deck >= static_cast<int>(m_decks.size())) {
+        return 0.0f;
     }
+    return m_decks[deck].renderedTempo.load(std::memory_order_relaxed);
+}
+
+bool DeckEngine::renderedKeylock(int deck) const {
+    if (deck < 0 || deck >= static_cast<int>(m_decks.size())) {
+        return false;
+    }
+    return m_decks[deck].renderedKeylock.load(std::memory_order_relaxed);
 }
 
 void DeckEngine::sampleAt(const PcmTrack& track, double position, float& left, float& right) {
@@ -94,25 +122,39 @@ void DeckEngine::render(std::span<float> interleaved) {
             EngineXfader::getPowerCalibration(1.0), MIXXX_XFADER_CONSTPWR, false,
             &gain1, &gain2);
 
-    renderDeck(m_decks[0], gain1 * static_cast<float>(m_decks[0].gain.load()), interleaved);
-    renderDeck(m_decks[1], gain2 * static_cast<float>(m_decks[1].gain.load()), interleaved);
+    renderDeck(m_decks[0], gain1 * m_decks[0].gain.load(std::memory_order_relaxed), interleaved);
+    renderDeck(m_decks[1], gain2 * m_decks[1].gain.load(std::memory_order_relaxed), interleaved);
 
     double energy = 0.0;
     for (float value : interleaved) {
         energy += static_cast<double>(value) * value;
     }
-    m_energy.store(energy, std::memory_order_relaxed);
+    m_energy.store(static_cast<float>(energy), std::memory_order_relaxed);
 }
 
 void DeckEngine::renderDeck(Deck& deck, float gain, std::span<float> interleaved) {
+    const float tempo = deck.tempo.load(std::memory_order_relaxed);
+    const bool keylock = deck.keylock.load(std::memory_order_relaxed);
+    deck.renderedTempo.store(tempo, std::memory_order_relaxed);
+    deck.renderedKeylock.store(keylock, std::memory_order_relaxed);
+
+    const PcmTrack* track = deck.track.load(std::memory_order_acquire);
+    if (track == nullptr || !track->valid() || track->channels < 1 || track->channels > 2) {
+        return;
+    }
+    const uint32_t seekGeneration = deck.seekGeneration.load(std::memory_order_acquire);
+    if (seekGeneration != deck.appliedSeekGeneration) {
+        const double fraction = deck.seekFraction.load(std::memory_order_relaxed);
+        deck.position = fraction * track->frames();
+        const double baseRate = static_cast<double>(track->sampleRate) /
+                m_outputSampleRate.load(std::memory_order_relaxed);
+        deck.outputTime = baseRate > 0.0 ? deck.position / baseRate : 0.0;
+        deck.appliedSeekGeneration = seekGeneration;
+    }
     if (gain <= 0.0f || !deck.playing.load(std::memory_order_relaxed)) {
         return;
     }
-    auto track = deck.track.load();
-    if (!track || !track->valid() || track->channels < 1 || track->channels > 2) {
-        return;
-    }
-    if (deck.keylock.load(std::memory_order_relaxed)) {
+    if (keylock) {
         renderKeylocked(deck, *track, gain, interleaved);
     } else {
         renderPlain(deck, *track, gain, interleaved);
@@ -122,7 +164,8 @@ void DeckEngine::renderDeck(Deck& deck, float gain, std::span<float> interleaved
 void DeckEngine::renderPlain(Deck& deck, const PcmTrack& track, float gain,
         std::span<float> interleaved) {
     const int outFrames = static_cast<int>(interleaved.size() / 2);
-    const double baseRate = static_cast<double>(track.sampleRate) / m_outputSampleRate;
+    const double baseRate = static_cast<double>(track.sampleRate) /
+            m_outputSampleRate.load(std::memory_order_relaxed);
     const double step = baseRate * deck.tempo.load(std::memory_order_relaxed);
     for (int i = 0; i < outFrames; ++i) {
         float left = 0.0f;
@@ -142,7 +185,8 @@ void DeckEngine::renderPlain(Deck& deck, const PcmTrack& track, float gain,
 void DeckEngine::renderKeylocked(Deck& deck, const PcmTrack& track, float gain,
         std::span<float> interleaved) {
     const int outFrames = static_cast<int>(interleaved.size() / 2);
-    const double baseRate = static_cast<double>(track.sampleRate) / m_outputSampleRate;
+    const double baseRate = static_cast<double>(track.sampleRate) /
+            m_outputSampleRate.load(std::memory_order_relaxed);
     const double tempo = deck.tempo.load(std::memory_order_relaxed);
     const double grainOut = kGrainSourceFrames / tempo;
     const double hopOut = grainOut * 0.5;
