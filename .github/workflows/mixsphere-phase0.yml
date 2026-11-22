@@ -12,6 +12,38 @@ env:
   BUILDENV_BASEPATH: /home/runner/buildenv
 
 jobs:
+  cpp-unit-tests:
+    name: C++ DSP unit tests (host)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install host dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qt6-base-dev libgtest-dev cmake g++
+      - name: Configure
+        run: cmake -S android-spike/native/tests -B build-host -DMIXXX_ROOT="$PWD"
+      - name: Build
+        run: cmake --build build-host --parallel
+      - name: Test
+        run: ctest --test-dir build-host --output-on-failure
+
+  kotlin-unit-tests:
+    name: Kotlin unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Android SDK and NDK
+        shell: bash
+        run: source tools/android_buildenv.sh setup
+      - name: Export Qt prefix
+        shell: bash
+        run: echo "QT_ANDROID_CMAKE_PREFIX_PATH=${MIXXX_VCPKG_ROOT}/installed/arm64-android" >> "$GITHUB_ENV"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+      - name: Run JVM tests
+        working-directory: android-spike
+        run: gradle testDebugUnitTest --stacktrace
+
   static-checks:
     name: Static checks
     runs-on: ubuntu-24.04
@@ -83,7 +115,7 @@ jobs:
 
   proof-of-life:
     name: Emulator proof of life (API 35)
-    needs: [ndk-build]
+    needs: [cpp-unit-tests, kotlin-unit-tests, ndk-build]
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
