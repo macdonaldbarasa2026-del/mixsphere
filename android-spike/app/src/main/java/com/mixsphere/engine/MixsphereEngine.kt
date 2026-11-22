@@ -13,18 +13,30 @@ class MixsphereEngine(sampleRate: Int = 48000) : Closeable {
         require(handle != 0L) { "native engine allocation failed" }
     }
 
+    @Synchronized
     fun loadTrack(deck: Int, path: String): Boolean = nativeLoadTrack(handle, deck, path)
+    @Synchronized
     fun startAudio(): Boolean = nativeStartAudio(handle)
+    @Synchronized
     fun play(deck: Int, playing: Boolean) = nativePlay(handle, deck, playing)
+    @Synchronized
     fun setTempo(deck: Int, tempo: Double, keylock: Boolean) =
         nativeSetTempo(handle, deck, tempo, keylock)
+    @Synchronized
     fun setCrossfader(position: Double) = nativeSetCrossfader(handle, position)
+    @Synchronized
     fun renderedEnergy(): Double = nativeRenderedEnergy(handle)
+    @Synchronized
     fun renderedTempo(deck: Int): Double = nativeRenderedTempo(handle, deck)
+    @Synchronized
     fun renderedKeylock(deck: Int): Boolean = nativeRenderedKeylock(handle, deck)
+    @Synchronized
     fun audioApi(): String = nativeAudioApi(handle)
+    @Synchronized
     fun latencyMs(): Double = nativeLatencyMs(handle)
+    @Synchronized
     fun callbackMicros(): Double = nativeCallbackMicros(handle)
+    @Synchronized
     fun sampleRate(): Int = nativeSampleRate(handle)
 
     @Synchronized
