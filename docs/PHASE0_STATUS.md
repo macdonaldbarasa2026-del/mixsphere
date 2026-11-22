@@ -2,35 +2,35 @@
 
 Owner: Software Engineer
 Date: 2026-11-22
-Status: **Gate not met**
+Status: **Gate not met; implementation and CI validation continue**
 
-## Work recorded
+## Work in the shared workspace
 
-- The existing architecture and port documents map EngineBuffer, EngineMixer, controls, effects, analyzers, library, sync, recording, platform audio, and decoding dependencies.
-- The ADRs record proposed decisions for repository provenance, Qt scope, Oboe, decoding, and engine extraction. They are proposals until verified in a real fork build.
-- The source audit now distinguishes the upstream Android APK build from the required Mixsphere engine extraction and playback proof.
+- Architecture and dependency audit are in `docs/MIXXX_ANALYSIS.md` and `docs/PORT_PLAN.md`.
+- ADR-0001 through ADR-0006 record repository, Qt, audio, decoder, extraction, and current harness boundary decisions.
+- `android-spike/native` contains a CMake shared-library target, Oboe output, JNI facade, bounded PCM WAV reader, two-deck render loop, tempo/keylock control, and Mixxx `EngineXfader` DSP integration.
+- `android-spike/native/tests` contains GTest source for WAV parsing, crossfader DSP, output rendering, keylock controls, and invalid numeric controls.
+- `android-spike/app` contains the Kotlin JNI facade, Kotlin tempo boundary tests, and an instrumented test that starts Oboe and observes output/control telemetry from its callback.
+- Callback-facing samples are immutable and published as raw pointers; ownership stays on control-side storage until engine destruction. Callback controls and telemetry use lock-free atomic types guarded by compile-time assertions. Track I/O and decode remain outside the callback.
 
-## Source research correction
+## What this does and does not prove
 
-Mixxx upstream publishes instructions for building an Android APK. Those instructions use CMake's `apk` target and a Qt/vcpkg Android environment. This establishes that upstream Android compilation is an available starting point; it does **not** establish that a separately extracted `libmixsphere_engine.so`, Oboe callback, JNI bridge, playback, or keylock works. The prior workflow invokes `mixxx-lib` and `mixxx`; its target names and artifact path must be checked against the actual fork before use.
+The present deck code is a new `DeckEngine` around one real Mixxx DSP unit (`EngineXfader`). It does not execute Mixxx `EngineBuffer` or `EngineMixer`. The WAV reader handles only PCM16 or IEEE float32 mono/stereo and caps decoded storage at 64 MiB. The granular overlap-add keylock is experimental and is not Mixxx RubberBand/SoundTouch. This harness can test Oboe/JNI/callback plumbing, but its success alone will not be reported as full Mixxx engine extraction. ADR-0006 records the boundary and the evidence still needed to select the fallback.
 
-Reference: [Mixxx Android build guide](https://github.com/mixxxdj/mixxx/wiki/Building-for-Android).
+## CI and performance evidence
 
-## Environment and evidence
+The source tests and workflow are present, but these latest local edits have not been built or run in CI yet. No APK, emulator log, callback duration, latency, CPU, memory, or battery measurement is available. The app currently targets `arm64-v8a`; Mixxx's upstream Android build environment selects only the `arm64-android` dependency triplet. The required `armeabi-v7a` dependency/build path remains open.
 
-The supplied workspace has no `.git` directory, configured remote, Mixxx source tree, or Android engine/JNI application sources. No GitHub Actions or Codespaces connection is available in the tools exposed to this session. Consequently, this session could not clone or verify the stated fork, create a task branch/PR, run cloud CI, run an emulator, inspect logcat, or collect an APK artifact. No local build was attempted, consistent with the phone-only editor rule.
+Upstream's Android build guide documents an APK build using the `apk` CMake target. That baseline is distinct from the Mixsphere JNI/DSP harness and does not satisfy its proof gate: [Mixxx Android build guide](https://github.com/mixxxdj/mixxx/wiki/Building-for-Android).
 
-## Gate checklist
+## Remaining gate work
 
-- [x] Architecture/dependency/Qt/audio/decoder decisions documented as proposals.
-- [ ] Verify fork provenance and source branch in GitHub.
-- [ ] Implement a real `libmixsphere_engine.so` CMake target, Oboe backend, and thin JNI interface.
-- [ ] Add an Android host and instrumented test that loads and plays a real generated audio file, then changes tempo with keylock.
-- [ ] Run the build and instrumented proof in GitHub Actions; publish logs with measured callback/latency data and APK artifact.
-- [ ] Review changes in a task branch PR with passing required checks.
+- [ ] Run the C++ host and Kotlin JVM unit tests in GitHub Actions.
+- [ ] Build `libmixsphere_engine.so` and the debug APK with the pinned NDK/CMake/Gradle/AGP/Kotlin/Oboe/JDK toolchain.
+- [ ] Run the API 35 arm64 emulator test; require Oboe startup, real callback output, both keylock tempo changes, and logcat timing data.
+- [ ] Verify the uploaded APK is debug-signed and attach logs/artifact to the task PR.
+- [ ] Produce the required `armeabi-v7a` build or document concrete dependency/toolchain failure and viable alternative.
+- [ ] Continue the primary `EngineBuffer`/`EngineMixer` extraction feasibility check; only select the DSP-only fallback after recording the source/build evidence.
+- [ ] Measure and report callback duration and Oboe estimated latency from CI. Do not infer physical-device CPU, memory, or battery numbers from an emulator.
 
-## Risks and next handoff
-
-The largest unresolved engineering risk is whether the selected engine slice can be separated from `SoundManager`, `RecordingManager`, Qt GUI dependencies, and Mixxx's vcpkg build environment without broad source changes. The documented fallback remains DSP extraction plus a new deck engine, but no build evidence yet justifies invoking it.
-
-Next handoff is cloud workspace/repository setup and the smallest CI proof: verify the fork, branch from upstream's Android build, then add the actual Mixsphere engine/JNI proof. Keep all source patches in `docs/PATCHES.md`. Phase 0 remains open until the CI artifact and logs satisfy the gate. Product PRD, visual design, and icon work are therefore not started.
+Product, visual design, and icon work remain outside Phase 0. Phase 0 stays open until the CI evidence satisfies the gate.
