@@ -137,3 +137,9 @@ An instrumented test that:
 - [ ] Minimal Kotlin host + instrumented proof-of-life test
 - [ ] Green CI run with logs + APK artifact
 - [ ] Phase 0 report to Product Manager; STOP for approval
+
+## 10. Execution status (2026-11-22)
+
+Mixxx upstream documents an Android APK build using its Qt/vcpkg environment. The Mixsphere GitHub fork exists, and the architecture documents were merged in PR #1. The Phase 0 workflow is being corrected in PR #2 to use the documented `apk` CMake target. This build is an upstream Android baseline only; it does not satisfy the Mixsphere engine extraction gate.
+
+The fork currently has no verified `libmixsphere_engine.so` target, Oboe device, JNI playback host, instrumented play/keylock test, emulator latency log, or passing APK artifact for this proof. Until those are implemented and CI evidence is attached to a PR, Phase 0 remains open and later product/design phases do not start.
