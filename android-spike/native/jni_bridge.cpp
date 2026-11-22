@@ -8,8 +8,8 @@
 
 #include <memory>
 #include <new>
+#include <exception>
 #include <string>
-#include <vector>
 
 #include "DeckEngine.h"
 #include "OboeOutput.h"
@@ -33,7 +33,10 @@ EngineHandle* handleOf(jlong handle) {
 extern "C" {
 
 JNIEXPORT jlong JNICALL
-Java_com_mixsphere_engine_MixsphereEngine_nativeCreate(JNIEnv*, jclass, jint sampleRate) {
+Java_com_mixsphere_engine_MixsphereEngine_nativeCreate(JNIEnv*, jobject, jint sampleRate) {
+    if (sampleRate <= 0) {
+        return 0;
+    }
     try {
         return reinterpret_cast<jlong>(new EngineHandle(sampleRate));
     } catch (const std::bad_alloc&) {
@@ -42,13 +45,13 @@ Java_com_mixsphere_engine_MixsphereEngine_nativeCreate(JNIEnv*, jclass, jint sam
 }
 
 JNIEXPORT void JNICALL
-Java_com_mixsphere_engine_MixsphereEngine_nativeDestroy(JNIEnv*, jclass, jlong handle) {
+Java_com_mixsphere_engine_MixsphereEngine_nativeDestroy(JNIEnv*, jobject, jlong handle) {
     delete handleOf(handle);
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_mixsphere_engine_MixsphereEngine_nativeLoadTrack(
-        JNIEnv* env, jclass, jlong handle, jint deck, jstring path) {
+        JNIEnv* env, jobject, jlong handle, jint deck, jstring path) {
     auto* h = handleOf(handle);
     if (h == nullptr || path == nullptr) {
         return JNI_FALSE;
@@ -57,26 +60,32 @@ Java_com_mixsphere_engine_MixsphereEngine_nativeLoadTrack(
     if (chars == nullptr) {
         return JNI_FALSE;
     }
-    const std::string fileName(chars);
+    std::string fileName(chars);
     env->ReleaseStringUTFChars(path, chars);
 
-    auto track = std::make_shared<mixsphere::PcmTrack>(mixsphere::WavReader::read(fileName));
-    if (!track->valid()) {
+    try {
+        auto decoded = std::make_unique<mixsphere::PcmTrack>(
+                mixsphere::WavReader::read(fileName));
+        if (!decoded->valid()) {
+            return JNI_FALSE;
+        }
+        return h->engine.load(deck, std::move(decoded)) ? JNI_TRUE : JNI_FALSE;
+    } catch (const std::bad_alloc&) {
+        return JNI_FALSE;
+    } catch (const std::exception&) {
         return JNI_FALSE;
     }
-    h->engine.load(deck, std::move(track));
-    return JNI_TRUE;
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_mixsphere_engine_MixsphereEngine_nativeStartAudio(JNIEnv*, jclass, jlong handle) {
+Java_com_mixsphere_engine_MixsphereEngine_nativeStartAudio(JNIEnv*, jobject, jlong handle) {
     auto* h = handleOf(handle);
     return h != nullptr && h->output.start(h->engine.outputSampleRate()) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
 Java_com_mixsphere_engine_MixsphereEngine_nativePlay(
-        JNIEnv*, jclass, jlong handle, jint deck, jboolean playing) {
+        JNIEnv*, jobject, jlong handle, jint deck, jboolean playing) {
     if (auto* h = handleOf(handle)) {
         h->engine.setPlaying(deck, playing == JNI_TRUE);
     }
@@ -84,7 +93,7 @@ Java_com_mixsphere_engine_MixsphereEngine_nativePlay(
 
 JNIEXPORT void JNICALL
 Java_com_mixsphere_engine_MixsphereEngine_nativeSetTempo(
-        JNIEnv*, jclass, jlong handle, jint deck, jdouble tempo, jboolean keylock) {
+        JNIEnv*, jobject, jlong handle, jint deck, jdouble tempo, jboolean keylock) {
     if (auto* h = handleOf(handle)) {
         h->engine.setTempo(deck, tempo, keylock == JNI_TRUE);
     }
@@ -92,51 +101,52 @@ Java_com_mixsphere_engine_MixsphereEngine_nativeSetTempo(
 
 JNIEXPORT void JNICALL
 Java_com_mixsphere_engine_MixsphereEngine_nativeSetCrossfader(
-        JNIEnv*, jclass, jlong handle, jdouble position) {
+        JNIEnv*, jobject, jlong handle, jdouble position) {
     if (auto* h = handleOf(handle)) {
         h->engine.setCrossfader(position);
     }
 }
 
 JNIEXPORT jdouble JNICALL
-Java_com_mixsphere_engine_MixsphereEngine_nativeRenderedEnergy(JNIEnv*, jclass, jlong handle) {
+Java_com_mixsphere_engine_MixsphereEngine_nativeRenderedEnergy(JNIEnv*, jobject, jlong handle) {
     auto* h = handleOf(handle);
     return h != nullptr ? h->engine.renderedEnergy() : 0.0;
 }
 
 JNIEXPORT jdouble JNICALL
-Java_com_mixsphere_engine_MixsphereEngine_nativeRenderBlock(
-        JNIEnv*, jclass, jlong handle, jint frames) {
+Java_com_mixsphere_engine_MixsphereEngine_nativeRenderedTempo(
+        JNIEnv*, jobject, jlong handle, jint deck) {
     auto* h = handleOf(handle);
-    if (h == nullptr || frames <= 0) {
-        return 0.0;
-    }
-    static thread_local std::vector<float> scratch;
-    scratch.resize(static_cast<size_t>(frames) * 2);
-    h->engine.render(scratch);
-    return h->engine.renderedEnergy();
+    return h != nullptr ? h->engine.renderedTempo(deck) : 0.0;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_mixsphere_engine_MixsphereEngine_nativeRenderedKeylock(
+        JNIEnv*, jobject, jlong handle, jint deck) {
+    auto* h = handleOf(handle);
+    return h != nullptr && h->engine.renderedKeylock(deck) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_mixsphere_engine_MixsphereEngine_nativeAudioApi(JNIEnv* env, jclass, jlong handle) {
+Java_com_mixsphere_engine_MixsphereEngine_nativeAudioApi(JNIEnv* env, jobject, jlong handle) {
     auto* h = handleOf(handle);
     return env->NewStringUTF(h != nullptr ? h->output.apiName().c_str() : "none");
 }
 
 JNIEXPORT jdouble JNICALL
-Java_com_mixsphere_engine_MixsphereEngine_nativeLatencyMs(JNIEnv*, jclass, jlong handle) {
+Java_com_mixsphere_engine_MixsphereEngine_nativeLatencyMs(JNIEnv*, jobject, jlong handle) {
     auto* h = handleOf(handle);
     return h != nullptr ? h->output.estimatedLatencyMs() : -1.0;
 }
 
 JNIEXPORT jdouble JNICALL
-Java_com_mixsphere_engine_MixsphereEngine_nativeCallbackMicros(JNIEnv*, jclass, jlong handle) {
+Java_com_mixsphere_engine_MixsphereEngine_nativeCallbackMicros(JNIEnv*, jobject, jlong handle) {
     auto* h = handleOf(handle);
     return h != nullptr ? h->output.lastCallbackMicros() : -1.0;
 }
 
 JNIEXPORT jint JNICALL
-Java_com_mixsphere_engine_MixsphereEngine_nativeSampleRate(JNIEnv*, jclass, jlong handle) {
+Java_com_mixsphere_engine_MixsphereEngine_nativeSampleRate(JNIEnv*, jobject, jlong handle) {
     auto* h = handleOf(handle);
     return h != nullptr ? h->output.actualSampleRate() : 0;
 }
