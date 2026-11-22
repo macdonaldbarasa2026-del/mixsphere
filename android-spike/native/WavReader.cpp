@@ -97,7 +97,8 @@ PcmTrack WavReader::read(const std::string& path) {
         }
     }
 
-    if (dataOffset < 0 || (channels != 1 && channels != 2) || sampleRate == 0) {
+    if (dataOffset < 0 || (channels != 1 && channels != 2) || sampleRate == 0 ||
+            sampleRate > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
         return track;
     }
     if (!((audioFormat == 1 && bitsPerSample == 16) ||
@@ -106,7 +107,7 @@ PcmTrack WavReader::read(const std::string& path) {
     }
     const uint32_t bytesPerSample = bitsPerSample / 8;
     const uint32_t bytesPerFrame = channels * bytesPerSample;
-    constexpr uint32_t kMaxDecodedBytes = 128u * 1024u * 1024u;
+    constexpr uint32_t kMaxDecodedBytes = 64u * 1024u * 1024u;
     if (bytesPerFrame == 0 || dataSize % bytesPerFrame != 0 ||
             dataSize / bytesPerFrame > static_cast<uint32_t>(
                     std::numeric_limits<int>::max()) ||
