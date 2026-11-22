@@ -13,8 +13,7 @@ include(FetchContent)
 FetchContent_Declare(
   oboe
   GIT_REPOSITORY https://github.com/google/oboe.git
-  GIT_TAG 1.9.0
-  GIT_SHALLOW TRUE
+  GIT_TAG 03242e9ef9495e418e6ae83954d239dc9193ec5c
 )
 set(OBOE_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(OBOE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -32,10 +31,6 @@ target_include_directories(mixsphere_engine PRIVATE
   ${CMAKE_CURRENT_LIST_DIR}
   ${MIXXX_ROOT}/src
   ${MIXXX_ROOT}/lib/fidlib
-)
-
-target_compile_definitions(mixsphere_engine PRIVATE
-  MIXXX_ENGINE_XFADER_AVAILABLE=1
 )
 
 target_link_libraries(mixsphere_engine
