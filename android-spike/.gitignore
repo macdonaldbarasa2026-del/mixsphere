@@ -1,0 +1,4 @@
+.fetchcontent/
+.gradle/
+.cxx/
+build/
