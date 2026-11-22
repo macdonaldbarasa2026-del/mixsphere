@@ -39,6 +39,12 @@ bool OboeOutput::openStream(oboe::AudioApi api, int requestedSampleRate) {
 }
 
 bool OboeOutput::start(int requestedSampleRate) {
+    if (m_stream && m_stream->getState() == oboe::StreamState::Started) {
+        return true;
+    }
+    if (m_stream) {
+        stop();
+    }
     if (openStream(oboe::AudioApi::AAudio, requestedSampleRate) &&
             m_stream->requestStart() == oboe::Result::OK) {
         return true;
@@ -58,6 +64,8 @@ void OboeOutput::stop() {
         m_stream->close();
         m_stream.reset();
     }
+    m_api = oboe::AudioApi::Unspecified;
+    m_actualSampleRate.store(0, std::memory_order_relaxed);
 }
 
 std::string OboeOutput::apiName() const {
