@@ -1,0 +1,134 @@
+/*
+ * Mixsphere Phase 0 - native DSP unit tests.
+ * Copyright (C) 2026 Mixsphere contributors. SPDX-License-Identifier: GPL-3.0-or-later
+ */
+#include <cmath>
+#include <cstdint>
+#include <fstream>
+#include <vector>
+
+#include <gtest/gtest.h>
+
+#include "DeckEngine.h"
+#include "WavReader.h"
+#include "engine/enginexfader.h"
+
+namespace {
+
+using namespace mixsphere;
+
+PcmTrack makeTrack(int frames, int sampleRate, double frequency) {
+    PcmTrack track;
+    track.channels = 2;
+    track.sampleRate = sampleRate;
+    track.samples.resize(static_cast<size_t>(frames) * 2);
+    for (int i = 0; i < frames; ++i) {
+        const float value = static_cast<float>(
+                std::sin(2.0 * 3.14159265358979323846 * frequency * i / sampleRate) * 0.5);
+        track.samples[static_cast<size_t>(i) * 2] = value;
+        track.samples[static_cast<size_t>(i) * 2 + 1] = value;
+    }
+    return track;
+}
+
+void writePcm16Wav(const char* path, const PcmTrack& track) {
+    const int dataSize = track.frames() * track.channels * 2;
+    std::vector<unsigned char> bytes(static_cast<size_t>(44 + dataSize), 0);
+    auto put32 = [&](size_t at, uint32_t v) {
+        bytes[at] = v & 0xff;
+        bytes[at + 1] = (v >> 8) & 0xff;
+        bytes[at + 2] = (v >> 16) & 0xff;
+        bytes[at + 3] = (v >> 24) & 0xff;
+    };
+    auto put16 = [&](size_t at, uint16_t v) {
+        bytes[at] = v & 0xff;
+        bytes[at + 1] = (v >> 8) & 0xff;
+    };
+    const char* riff = "RIFF";
+    const char* wave = "WAVE";
+    const char* fmt = "fmt ";
+    const char* data = "data";
+    for (int i = 0; i < 4; ++i) {
+        bytes[i] = riff[i];
+        bytes[8 + i] = wave[i];
+        bytes[12 + i] = fmt[i];
+        bytes[36 + i] = data[i];
+    }
+    put32(4, static_cast<uint32_t>(36 + dataSize));
+    put32(16, 16);
+    put16(20, 1);
+    put16(22, static_cast<uint16_t>(track.channels));
+    put32(24, static_cast<uint32_t>(track.sampleRate));
+    put32(28, static_cast<uint32_t>(track.sampleRate * track.channels * 2));
+    put16(32, static_cast<uint16_t>(track.channels * 2));
+    put16(34, 16);
+    put32(40, static_cast<uint32_t>(dataSize));
+    for (int f = 0; f < track.frames(); ++f) {
+        for (int c = 0; c < track.channels; ++c) {
+            const int16_t sample = static_cast<int16_t>(
+                    track.samples[static_cast<size_t>(f) * track.channels + c] * 32768.0f);
+            const size_t at = 44 + (static_cast<size_t>(f) * track.channels + c) * 2;
+            bytes[at] = static_cast<unsigned char>(sample & 0xff);
+            bytes[at + 1] = static_cast<unsigned char>((sample >> 8) & 0xff);
+        }
+    }
+    std::ofstream out(path, std::ios::binary);
+    out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
+
+} // namespace
+
+TEST(WavReaderTest, ReadsPcm16StereoExactly) {
+    const auto source = makeTrack(4096, 48000, 440.0);
+    const char* path = "/tmp/mixsphere_phase0_test.wav";
+    writePcm16Wav(path, source);
+
+    const auto track = WavReader::read(path);
+    ASSERT_TRUE(track.valid());
+    EXPECT_EQ(track.channels, 2);
+    EXPECT_EQ(track.sampleRate, 48000);
+    EXPECT_EQ(track.frames(), 4096);
+    EXPECT_NEAR(track.samples[0], source.samples[0], 1.0e-4);
+    EXPECT_NEAR(track.samples[100], source.samples[100], 1.0e-4);
+}
+
+TEST(MixxxXfaderTest, ConstantPowerGainsAreNormalised) {
+    const double calibration = EngineXfader::getPowerCalibration(1.0);
+    EXPECT_NEAR(calibration, std::sqrt(0.5), 1.0e-9);
+    CSAMPLE_GAIN left = 0.0f;
+    CSAMPLE_GAIN right = 0.0f;
+    EngineXfader::getXfadeGains(0.0, 1.0, calibration, MIXXX_XFADER_CONSTPWR, false,
+            &left, &right);
+    const double power = static_cast<double>(left) * left + static_cast<double>(right) * right;
+    EXPECT_NEAR(power, 1.0, 1.0e-5);
+}
+
+TEST(DeckEngineTest, RendersAudibleOutput) {
+    DeckEngine engine(48000);
+    auto track = std::make_shared<PcmTrack>(makeTrack(96000, 48000, 440.0));
+    engine.load(0, track);
+    engine.setCrossfader(-1.0);
+    engine.play(0, true);
+    std::vector<float> buffer(4096);
+    engine.render(buffer);
+    EXPECT_GT(engine.renderedEnergy(), 1.0);
+}
+
+TEST(DeckEngineTest, TempoChangeWithKeylockRemainsAudible) {
+    DeckEngine engine(48000);
+    auto track = std::make_shared<PcmTrack>(makeTrack(96000, 48000, 440.0));
+    engine.load(0, track);
+    engine.setCrossfader(-1.0);
+    engine.play(0, true);
+    std::vector<float> buffer(8192);
+
+    engine.setTempo(0, 1.10, true);
+    engine.render(buffer);
+    const double fast = engine.renderedEnergy();
+    EXPECT_GT(fast, 1.0);
+
+    engine.setTempo(0, 0.90, true);
+    engine.render(buffer);
+    const double slow = engine.renderedEnergy();
+    EXPECT_GT(slow, 1.0);
+}
