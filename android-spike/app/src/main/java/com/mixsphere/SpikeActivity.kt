@@ -26,6 +26,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
@@ -41,6 +42,12 @@ import kotlin.math.sin
 
 class SpikeActivity : Activity() {
     private var engine: MixsphereEngine? = null
+    private var sampler: MixsphereEngine? = null
+    private var sampleAudioStarted = false
+    private var sampleToken = 0
+    private lateinit var sampleLibrary: SampleLibrary
+    private lateinit var stemDir: File
+    private var stemsReady = false
     private var audioStarted = false
     private var pendingDeck = 0
     private var mode = MODE_EQ
@@ -83,6 +90,10 @@ class SpikeActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        sampleLibrary = SampleLibrary(this)
+        sampleLibrary.install()
+        stemDir = File(filesDir, "stems")
+        stemDir.mkdirs()
         setContentView(buildUi())
         engine = MixsphereEngine()
         handler.post(refresh)
@@ -92,6 +103,8 @@ class SpikeActivity : Activity() {
         handler.removeCallbacks(refresh)
         engine?.close()
         engine = null
+        sampler?.close()
+        sampler = null
         super.onDestroy()
     }
 
@@ -134,7 +147,7 @@ class SpikeActivity : Activity() {
         root.addView(stage, LinearLayout.LayoutParams(MATCH, 0, 1f))
 
         modePanel = FrameLayout(this)
-        root.addView(modePanel, LinearLayout.LayoutParams(MATCH, dp(88)))
+        root.addView(modePanel, LinearLayout.LayoutParams(MATCH, dp(124)))
         showMode(MODE_EQ)
 
         root.addView(buildCrossfaderBar(), LinearLayout.LayoutParams(MATCH, dp(58)))
@@ -229,6 +242,7 @@ class SpikeActivity : Activity() {
             MODE_LOOP to "LOOP",
             MODE_FX to "FX",
             MODE_SAMPLE to "SMP",
+            MODE_STEM to "STEM",
         )) {
             val button = button(entry.second, TEXT_DIM) { showMode(entry.first) }
             modeButtons[entry.first] = button
@@ -295,6 +309,7 @@ class SpikeActivity : Activity() {
                 MODE_LOOP -> buildLoopPanel()
                 MODE_FX -> buildFxPanel()
                 MODE_SAMPLE -> buildSamplePanel()
+                MODE_STEM -> buildStemPanel()
                 else -> buildEqPanel()
             },
             FrameLayout.LayoutParams(MATCH, MATCH),
@@ -379,18 +394,105 @@ class SpikeActivity : Activity() {
     }
 
     private fun buildSamplePanel(): View {
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+        val grid = GridLayout(this).apply {
+            rowCount = 4
+            columnCount = 4
             setBackgroundColor(BG1)
+            setPadding(dp(4), dp(4), dp(4), dp(4))
         }
-        for (index in 1..4) {
-            panel.addView(
-                button("S$index", TEXT) { },
-                LinearLayout.LayoutParams(0, dp(46), 1f).apply { setMargins(dp(4), 0, dp(4), 0) },
+        for ((index, sample) in sampleLibrary.samples.withIndex()) {
+            val spec = GridLayout.spec(index / 4, 1f)
+            val pad = button(sample.label, if (index % 2 == 0) DECK_A_COLOR else DECK_B_COLOR) {
+                triggerSample(index)
+            }
+            grid.addView(
+                pad,
+                GridLayout.LayoutParams(spec, GridLayout.spec(index % 4, 1f)).apply {
+                    width = 0
+                    setMargins(dp(2), dp(2), dp(2), dp(2))
+                    height = dp(26)
+                },
             )
         }
-        return panel
+        return grid
+    }
+
+    private fun triggerSample(index: Int) {
+        val active = sampler ?: MixsphereEngine().also { sampler = it }
+        if (!sampleAudioStarted) sampleAudioStarted = active.startAudio()
+        active.setCrossfader(-1.0)
+        active.setTempo(0, 1.0, false)
+        active.seek(0, 0.0)
+        if (!active.loadTrack(0, sampleLibrary.path(index))) return
+        val token = ++sampleToken
+        active.play(0, true)
+        handler.postDelayed({
+            if (token == sampleToken) active.play(0, false)
+        }, sampleLibrary.samples[index].durationMs)
+    }
+
+    private fun buildStemPanel(): View {
+        val grid = GridLayout(this).apply {
+            rowCount = 2
+            columnCount = 3
+            setBackgroundColor(BG1)
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+        }
+        val labels = listOf(
+            "VOCALS" to "vocals.wav",
+            "BEAT" to "beat.wav",
+            "HARMONY" to "harmony.wav",
+            "NO VOCALS" to "no_vocals.wav",
+            "NO BEAT" to "no_beat.wav",
+            "NO HARMONY" to "no_harmony.wav",
+        )
+        for ((index, entry) in labels.withIndex()) {
+            val spec = GridLayout.spec(index / 3, 1f)
+            val pad = button(entry.first, if (index % 2 == 0) DECK_A_COLOR else DECK_B_COLOR) {
+                if (!stemsReady) {
+                    prepareStems()
+                } else {
+                    playStem(entry.second)
+                }
+            }
+            grid.addView(
+                pad,
+                GridLayout.LayoutParams(spec, GridLayout.spec(index % 3, 1f)).apply {
+                    width = 0
+                    height = dp(44)
+                    setMargins(dp(2), dp(2), dp(2), dp(2))
+                },
+            )
+        }
+        return grid
+    }
+
+    private fun prepareStems() {
+        val active = engine ?: return
+        statusText.text = "SEPARATING STEMS..."
+        Thread {
+            val ok = active.separateStems(0, stemDir.absolutePath)
+            handler.post {
+                stemsReady = ok
+                statusText.text = if (ok) "STEMS READY - TAP A STEM" else "STEM SEPARATION FAILED"
+            }
+        }.start()
+    }
+
+    private fun playStem(fileName: String) {
+        val active = engine ?: return
+        val file = File(stemDir, fileName)
+        if (!active.loadTrack(0, file.absolutePath)) return
+        val deck = decks[0]
+        deck.loaded = true
+        deck.name.text = fileName.removeSuffix(".wav").replace('_', ' ')
+        if (!audioStarted) audioStarted = active.startAudio()
+        active.setCrossfader(-1.0)
+        active.setTempo(0, 1.0, false)
+        active.seek(0, 0.0)
+        active.play(0, true)
+        deck.playing = true
+        deck.playButton.text = "PAUSE"
     }
 
     private fun buildCrossfaderBar(): View {
@@ -908,6 +1010,7 @@ class SpikeActivity : Activity() {
         private const val MODE_LOOP = "LOOP"
         private const val MODE_FX = "FX"
         private const val MODE_SAMPLE = "SMP"
+        private const val MODE_STEM = "STEM"
         private val BANDS = listOf("VOL", "HI", "MID", "LOW")
         private val LOOP_SIZES = listOf("1/32", "1/16", "1/8", "1/4", "1/2", "1", "2", "4")
         private val FX_NAMES = listOf("FILTER", "ECHO", "FLANGER")

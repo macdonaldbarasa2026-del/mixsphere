@@ -35,6 +35,9 @@ class MixsphereEngine(sampleRate: Int = 48000) : Closeable {
         nativeSetGain(activeHandle(), deck, gain.coerceIn(0.0, 1.0))
     }
     @Synchronized
+    fun separateStems(deck: Int, outputDirectory: String): Boolean =
+        nativeSeparateStems(activeHandle(), deck, outputDirectory)
+    @Synchronized
     fun renderedEnergy(): Double = nativeRenderedEnergy(activeHandle())
     @Synchronized
     fun renderedTempo(deck: Int): Double = nativeRenderedTempo(activeHandle(), deck)
@@ -73,6 +76,11 @@ class MixsphereEngine(sampleRate: Int = 48000) : Closeable {
     private external fun nativeSetCrossfader(handle: Long, position: Double)
     private external fun nativeSeek(handle: Long, deck: Int, fraction: Double)
     private external fun nativeSetGain(handle: Long, deck: Int, gain: Double)
+    private external fun nativeSeparateStems(
+        handle: Long,
+        deck: Int,
+        outputDirectory: String,
+    ): Boolean
     private external fun nativeRenderedEnergy(handle: Long): Double
     private external fun nativeRenderedTempo(handle: Long, deck: Int): Double
     private external fun nativeRenderedKeylock(handle: Long, deck: Int): Boolean

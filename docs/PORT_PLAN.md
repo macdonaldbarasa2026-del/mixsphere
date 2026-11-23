@@ -49,7 +49,7 @@ Trade-off accepted: the engine is Qt-flavoured C++, so Kotlin talks to it throug
 
 ## 4. Audio architecture (ADR-0003)
 
-```
+```text
 Kotlin/Compose UI
    |  (JNI calls: loadTrack, play, setTempo, setKeylock)
    v

@@ -54,6 +54,7 @@ class DeckEngine {
     void render(std::span<float> interleaved);
 
     bool load(int deck, std::unique_ptr<const PcmTrack> track);
+    const PcmTrack* trackOf(int deck) const;
     void setPlaying(int deck, bool playing);
     void setTempo(int deck, double tempo, bool keylock);
     void setGain(int deck, double gain);

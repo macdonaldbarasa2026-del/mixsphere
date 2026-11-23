@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "DeckEngine.h"
+#include "StemSeparator.h"
 #include "WavReader.h"
 #include "engine/enginexfader.h"
 
@@ -111,7 +112,7 @@ TEST(DeckEngineTest, RendersAudibleOutput) {
     auto track = std::make_unique<const PcmTrack>(makeTrack(96000, 48000, 440.0));
     ASSERT_TRUE(engine.load(0, std::move(track)));
     engine.setCrossfader(-1.0);
-    engine.setPlaying(0, true);
+    engine.play(0, true);
     std::vector<float> buffer(4096);
     engine.render(buffer);
     EXPECT_GT(engine.renderedEnergy(), 1.0);
@@ -122,7 +123,7 @@ TEST(DeckEngineTest, TempoChangeWithKeylockRemainsAudible) {
     auto track = std::make_unique<const PcmTrack>(makeTrack(96000, 48000, 440.0));
     ASSERT_TRUE(engine.load(0, std::move(track)));
     engine.setCrossfader(-1.0);
-    engine.setPlaying(0, true);
+    engine.play(0, true);
     std::vector<float> buffer(8192);
 
     engine.setTempo(0, 1.10, true);
@@ -136,6 +137,41 @@ TEST(DeckEngineTest, TempoChangeWithKeylockRemainsAudible) {
     EXPECT_NEAR(engine.renderedTempo(0), 0.90, 0.001);
     EXPECT_TRUE(engine.renderedKeylock(0));
     EXPECT_GT(engine.renderedEnergy(), 1.0);
+}
+
+TEST(StemSeparatorTest, StemsReconstructInputAndCarryEnergy) {
+    PcmTrack input;
+    input.channels = 2;
+    input.sampleRate = 48000;
+    constexpr int kFrames = 48000;
+    input.samples.resize(kFrames * 2);
+    for (int i = 0; i < kFrames; ++i) {
+        const double t = static_cast<double>(i) / input.sampleRate;
+        const double vocal = 0.35 * std::sin(2.0 * 3.14159265358979323846 * 440.0 * t);
+        const double harmony = 0.25 * std::sin(2.0 * 3.14159265358979323846 * 261.6 * t);
+        const double beat = (i % 12000) < 900 ? 0.4 * std::sin(2.0 * 3.14159265358979323846 * 60.0 * t) : 0.0;
+        const float value = static_cast<float>(vocal + harmony + beat);
+        input.samples[i * 2] = value;
+        input.samples[i * 2 + 1] = value;
+    }
+
+    const StemSet stems = separateStems(input);
+    ASSERT_EQ(stems.vocals.channels, 2);
+    ASSERT_EQ(stems.harmony.frames(), kFrames);
+    ASSERT_GT(stems.vocals.samples.size(), 0U);
+
+    double energy = 0.0;
+    for (float sample : stems.vocals.samples) {
+        energy += sample * sample;
+    }
+    EXPECT_GT(energy, 1.0e-3);
+
+    double error = 0.0;
+    for (size_t i = 0; i < input.samples.size(); ++i) {
+        const float sum = stems.vocals.samples[i] + stems.beat.samples[i] + stems.harmony.samples[i];
+        error += std::abs(sum - input.samples[i]);
+    }
+    EXPECT_LT(error / input.samples.size(), 0.02);
 }
 
 TEST(WavReaderTest, RejectsTruncatedAndNonWaveInput) {

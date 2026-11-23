@@ -14,6 +14,7 @@
 
 #include "DeckEngine.h"
 #include "OboeOutput.h"
+#include "StemSeparator.h"
 #include "WavReader.h"
 
 namespace {
@@ -129,6 +130,40 @@ Java_com_mixsphere_engine_MixsphereEngine_nativeSetGain(
         JNIEnv*, jobject, jlong handle, jint deck, jdouble gain) {
     if (auto* h = handleOf(handle)) {
         h->engine.setGain(deck, gain);
+    }
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_mixsphere_engine_MixsphereEngine_nativeSeparateStems(
+        JNIEnv* env, jobject, jlong handle, jint deck, jstring directory) {
+    auto* h = handleOf(handle);
+    if (h == nullptr || directory == nullptr || deck < 0 || deck > 1) {
+        return JNI_FALSE;
+    }
+    const mixsphere::PcmTrack* track = h->engine.trackOf(deck);
+    if (track == nullptr || !track->valid()) {
+        return JNI_FALSE;
+    }
+    const char* chars = env->GetStringUTFChars(directory, nullptr);
+    if (chars == nullptr) {
+        return JNI_FALSE;
+    }
+    const std::string path(chars);
+    env->ReleaseStringUTFChars(directory, chars);
+    try {
+        const auto stems = mixsphere::separateStems(*track);
+        bool ok = mixsphere::writePcm16Wav(stems.vocals, path + "/vocals.wav") &&
+                mixsphere::writePcm16Wav(stems.beat, path + "/beat.wav") &&
+                mixsphere::writePcm16Wav(stems.harmony, path + "/harmony.wav") &&
+                mixsphere::writePcm16Wav(mixsphere::mixStems(stems.beat, stems.harmony),
+                        path + "/no_vocals.wav") &&
+                mixsphere::writePcm16Wav(mixsphere::mixStems(stems.vocals, stems.harmony),
+                        path + "/no_beat.wav") &&
+                mixsphere::writePcm16Wav(mixsphere::mixStems(stems.vocals, stems.beat),
+                        path + "/no_harmony.wav");
+        return ok ? JNI_TRUE : JNI_FALSE;
+    } catch (...) {
+        return JNI_FALSE;
     }
 }
 

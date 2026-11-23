@@ -44,6 +44,13 @@ bool DeckEngine::load(int deck, std::unique_ptr<const PcmTrack> track) {
     return true;
 }
 
+const PcmTrack* DeckEngine::trackOf(int deck) const {
+    if (deck < 0 || deck >= static_cast<int>(m_decks.size())) {
+        return nullptr;
+    }
+    return m_decks[deck].track.load(std::memory_order_acquire);
+}
+
 void DeckEngine::setPlaying(int deck, bool playing) {
     if (deck >= 0 && deck <= 1) {
         m_decks[deck].playing.store(playing, std::memory_order_relaxed);

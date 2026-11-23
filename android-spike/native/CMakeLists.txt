@@ -5,12 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(
-  MIXXX_ROOT
-  "${CMAKE_CURRENT_LIST_DIR}/../.."
-  CACHE PATH
-  "Root of the Mixxx-derived source tree"
-)
+set(MIXXX_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." CACHE PATH "Root of the Mixxx-derived source tree")
 
 find_package(Qt6 6.2 REQUIRED COMPONENTS Core)
 
@@ -24,22 +19,27 @@ set(OBOE_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(OBOE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(oboe)
 
-add_library(
-  mixsphere_engine
-  SHARED
+add_library(mixsphere_engine SHARED
   jni_bridge.cpp
   DeckEngine.cpp
   OboeOutput.cpp
   WavReader.cpp
+  StemSeparator.cpp
   ${MIXXX_ROOT}/src/engine/enginexfader.cpp
 )
 
-target_include_directories(
-  mixsphere_engine
-  PRIVATE ${CMAKE_CURRENT_LIST_DIR} ${MIXXX_ROOT}/src ${MIXXX_ROOT}/lib/fidlib
+target_include_directories(mixsphere_engine PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}
+  ${MIXXX_ROOT}/src
+  ${MIXXX_ROOT}/lib/fidlib
 )
 
-target_link_libraries(mixsphere_engine Qt6::Core oboe log android)
+target_link_libraries(mixsphere_engine
+  Qt6::Core
+  oboe
+  log
+  android
+)
 
 if(ANDROID_ABI STREQUAL "arm64-v8a")
   target_compile_options(mixsphere_engine PRIVATE -march=armv8-a+simd)
