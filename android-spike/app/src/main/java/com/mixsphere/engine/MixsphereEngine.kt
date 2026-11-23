@@ -25,6 +25,16 @@ class MixsphereEngine(sampleRate: Int = 48000) : Closeable {
     @Synchronized
     fun setCrossfader(position: Double) = nativeSetCrossfader(activeHandle(), position)
     @Synchronized
+    fun seek(deck: Int, fraction: Double) {
+        require(fraction.isFinite()) { "seek fraction must be finite" }
+        nativeSeek(activeHandle(), deck, fraction.coerceIn(0.0, 1.0))
+    }
+    @Synchronized
+    fun setGain(deck: Int, gain: Double) {
+        require(gain.isFinite()) { "gain must be finite" }
+        nativeSetGain(activeHandle(), deck, gain.coerceIn(0.0, 1.0))
+    }
+    @Synchronized
     fun renderedEnergy(): Double = nativeRenderedEnergy(activeHandle())
     @Synchronized
     fun renderedTempo(deck: Int): Double = nativeRenderedTempo(activeHandle(), deck)
@@ -61,6 +71,8 @@ class MixsphereEngine(sampleRate: Int = 48000) : Closeable {
     private external fun nativePlay(handle: Long, deck: Int, playing: Boolean)
     private external fun nativeSetTempo(handle: Long, deck: Int, tempo: Double, keylock: Boolean)
     private external fun nativeSetCrossfader(handle: Long, position: Double)
+    private external fun nativeSeek(handle: Long, deck: Int, fraction: Double)
+    private external fun nativeSetGain(handle: Long, deck: Int, gain: Double)
     private external fun nativeRenderedEnergy(handle: Long): Double
     private external fun nativeRenderedTempo(handle: Long, deck: Int): Double
     private external fun nativeRenderedKeylock(handle: Long, deck: Int): Boolean

@@ -7,13 +7,13 @@
  */
 #pragma once
 
+#include <oboe/Oboe.h>
+
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
-
-#include <oboe/Oboe.h>
 
 #include "DeckEngine.h"
 
@@ -31,8 +31,7 @@ class OboeOutput : public oboe::AudioStreamDataCallback {
     double lastCallbackMicros() const;
     int actualSampleRate() const;
 
-    oboe::DataCallbackResult onAudioReady(oboe::AudioStream* stream, void* audioData,
-            int32_t numFrames) override;
+    oboe::DataCallbackResult onAudioReady(oboe::AudioStream* stream, void* audioData, int32_t numFrames) override;
 
   private:
     bool openStream(oboe::AudioApi api, int requestedSampleRate);

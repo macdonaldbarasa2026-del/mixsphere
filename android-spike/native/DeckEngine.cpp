@@ -17,7 +17,8 @@ constexpr uint32_t kTempoScale = 1000000u;
 
 } // namespace
 
-DeckEngine::DeckEngine(int outputSampleRate) : m_outputSampleRate(outputSampleRate) {
+DeckEngine::DeckEngine(int outputSampleRate)
+        : m_outputSampleRate(outputSampleRate) {
     for (auto& deck : m_decks) {
         deck.gain.store(1.0f, std::memory_order_relaxed);
     }
@@ -120,8 +121,7 @@ void DeckEngine::sampleAt(const PcmTrack& track, double position, float& left, f
     const size_t l0 = static_cast<size_t>(i0) * track.channels;
     const size_t l1 = static_cast<size_t>(i1) * track.channels;
     left = track.samples[l0] * (1.0f - f) + track.samples[l1] * f;
-    right = track.channels == 2 ?
-            track.samples[l0 + 1] * (1.0f - f) + track.samples[l1 + 1] * f : left;
+    right = track.channels == 2 ? track.samples[l0 + 1] * (1.0f - f) + track.samples[l1 + 1] * f : left;
 }
 
 void DeckEngine::render(std::span<float> interleaved) {
@@ -129,9 +129,7 @@ void DeckEngine::render(std::span<float> interleaved) {
 
     CSAMPLE_GAIN gain1 = 0.0f;
     CSAMPLE_GAIN gain2 = 0.0f;
-    EngineXfader::getXfadeGains(m_crossfader.load(std::memory_order_relaxed), 1.0,
-            EngineXfader::getPowerCalibration(1.0), MIXXX_XFADER_CONSTPWR, false,
-            &gain1, &gain2);
+    EngineXfader::getXfadeGains(m_crossfader.load(std::memory_order_relaxed), 1.0, EngineXfader::getPowerCalibration(1.0), MIXXX_XFADER_CONSTPWR, false, &gain1, &gain2);
 
     renderDeck(m_decks[0], gain1 * m_decks[0].gain.load(std::memory_order_relaxed), interleaved);
     renderDeck(m_decks[1], gain2 * m_decks[1].gain.load(std::memory_order_relaxed), interleaved);
@@ -173,8 +171,7 @@ void DeckEngine::renderDeck(Deck& deck, float gain, std::span<float> interleaved
     }
 }
 
-void DeckEngine::renderPlain(Deck& deck, const PcmTrack& track, float gain, float tempo,
-        std::span<float> interleaved) {
+void DeckEngine::renderPlain(Deck& deck, const PcmTrack& track, float gain, float tempo, std::span<float> interleaved) {
     const int outFrames = static_cast<int>(interleaved.size() / 2);
     const double baseRate = static_cast<double>(track.sampleRate) /
             m_outputSampleRate.load(std::memory_order_relaxed);
@@ -194,8 +191,7 @@ void DeckEngine::renderPlain(Deck& deck, const PcmTrack& track, float gain, floa
     }
 }
 
-void DeckEngine::renderKeylocked(Deck& deck, const PcmTrack& track, float gain, float tempo,
-        std::span<float> interleaved) {
+void DeckEngine::renderKeylocked(Deck& deck, const PcmTrack& track, float gain, float tempo, std::span<float> interleaved) {
     const int outFrames = static_cast<int>(interleaved.size() / 2);
     const double baseRate = static_cast<double>(track.sampleRate) /
             m_outputSampleRate.load(std::memory_order_relaxed);

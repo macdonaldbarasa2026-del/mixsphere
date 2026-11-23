@@ -45,19 +45,19 @@ jobs:
         run: |
           echo "ANDROID_HOME=${ANDROID_SDK}" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=${ANDROID_SDK}" >> "$GITHUB_ENV"
-          sdkmanager "cmake;3.31.6"
+          sudo env JAVA_HOME="$JAVA_HOME" sdkmanager "cmake;3.31.6"
       - name: Set up pinned JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17.0.21.1+2'
+          java-version: "17.0.21.1+2"
 
       - name: Export Qt prefix
         shell: bash
         run: echo "QT_ANDROID_CMAKE_PREFIX_PATH=${MIXXX_VCPKG_ROOT}/installed/arm64-android" >> "$GITHUB_ENV"
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: "8.9"
       - name: Run JVM tests
         working-directory: android-spike
         run: gradle testDebugUnitTest --stacktrace
@@ -110,13 +110,13 @@ jobs:
         run: |
           echo "ANDROID_HOME=${ANDROID_SDK}" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=${ANDROID_SDK}" >> "$GITHUB_ENV"
-          sdkmanager "cmake;3.31.6"
+          sudo env JAVA_HOME="$JAVA_HOME" sdkmanager "cmake;3.31.6"
 
       - name: Set up pinned JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17.0.21.1+2'
+          java-version: "17.0.21.1+2"
 
       - name: Export Qt prefix for native spike
         shell: bash
@@ -127,7 +127,7 @@ jobs:
       - name: Build native engine with Gradle/NDK
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: "8.9"
 
       - name: Stage Qt shared libraries for packaging
         shell: bash
@@ -191,13 +191,13 @@ jobs:
         run: |
           echo "ANDROID_HOME=${ANDROID_SDK}" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=${ANDROID_SDK}" >> "$GITHUB_ENV"
-          sdkmanager "cmake;3.31.6"
+          sudo env JAVA_HOME="$JAVA_HOME" sdkmanager "cmake;3.31.6"
 
       - name: Set up pinned JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17.0.21.1+2'
+          java-version: "17.0.21.1+2"
 
       - name: Export Qt prefix
         shell: bash
@@ -206,7 +206,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: "8.9"
 
       - name: Stage Qt shared libraries
         shell: bash

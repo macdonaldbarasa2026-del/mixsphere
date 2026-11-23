@@ -2,6 +2,8 @@
  * Mixsphere Phase 0 - native DSP unit tests.
  * Copyright (C) 2026 Mixsphere contributors. SPDX-License-Identifier: GPL-3.0-or-later
  */
+#include <gtest/gtest.h>
+
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -9,8 +11,6 @@
 #include <limits>
 #include <utility>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 #include "DeckEngine.h"
 #include "WavReader.h"
@@ -101,8 +101,7 @@ TEST(MixxxXfaderTest, ConstantPowerGainsAreNormalised) {
     EXPECT_NEAR(calibration, std::sqrt(0.5), 1.0e-9);
     CSAMPLE_GAIN left = 0.0f;
     CSAMPLE_GAIN right = 0.0f;
-    EngineXfader::getXfadeGains(0.0, 1.0, calibration, MIXXX_XFADER_CONSTPWR, false,
-            &left, &right);
+    EngineXfader::getXfadeGains(0.0, 1.0, calibration, MIXXX_XFADER_CONSTPWR, false, &left, &right);
     const double power = static_cast<double>(left) * left + static_cast<double>(right) * right;
     EXPECT_NEAR(power, 1.0, 1.0e-5);
 }
@@ -112,7 +111,7 @@ TEST(DeckEngineTest, RendersAudibleOutput) {
     auto track = std::make_unique<const PcmTrack>(makeTrack(96000, 48000, 440.0));
     ASSERT_TRUE(engine.load(0, std::move(track)));
     engine.setCrossfader(-1.0);
-    engine.play(0, true);
+    engine.setPlaying(0, true);
     std::vector<float> buffer(4096);
     engine.render(buffer);
     EXPECT_GT(engine.renderedEnergy(), 1.0);
@@ -123,7 +122,7 @@ TEST(DeckEngineTest, TempoChangeWithKeylockRemainsAudible) {
     auto track = std::make_unique<const PcmTrack>(makeTrack(96000, 48000, 440.0));
     ASSERT_TRUE(engine.load(0, std::move(track)));
     engine.setCrossfader(-1.0);
-    engine.play(0, true);
+    engine.setPlaying(0, true);
     std::vector<float> buffer(8192);
 
     engine.setTempo(0, 1.10, true);

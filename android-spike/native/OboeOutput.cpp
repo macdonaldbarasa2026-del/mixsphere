@@ -8,7 +8,9 @@
 
 namespace mixsphere {
 
-OboeOutput::OboeOutput(DeckEngine* engine) : m_engine(engine) {}
+OboeOutput::OboeOutput(DeckEngine* engine)
+        : m_engine(engine) {
+}
 
 OboeOutput::~OboeOutput() {
     stop();
@@ -70,12 +72,12 @@ void OboeOutput::stop() {
 
 std::string OboeOutput::apiName() const {
     switch (m_api) {
-        case oboe::AudioApi::AAudio:
-            return "AAudio";
-        case oboe::AudioApi::OpenSLES:
-            return "OpenSLES";
-        default:
-            return "Unspecified";
+    case oboe::AudioApi::AAudio:
+        return "AAudio";
+    case oboe::AudioApi::OpenSLES:
+        return "OpenSLES";
+    default:
+        return "Unspecified";
     }
 }
 
@@ -95,8 +97,7 @@ int OboeOutput::actualSampleRate() const {
     return m_actualSampleRate.load();
 }
 
-oboe::DataCallbackResult OboeOutput::onAudioReady(oboe::AudioStream* stream, void* audioData,
-        int32_t numFrames) {
+oboe::DataCallbackResult OboeOutput::onAudioReady(oboe::AudioStream* stream, void* audioData, int32_t numFrames) {
     const auto begin = std::chrono::steady_clock::now();
     const int channels = stream->getChannelCount();
     m_engine->render(std::span<float>(static_cast<float*>(audioData),
@@ -104,7 +105,8 @@ oboe::DataCallbackResult OboeOutput::onAudioReady(oboe::AudioStream* stream, voi
     const auto end = std::chrono::steady_clock::now();
     m_lastCallbackMicros.store(
             static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::microseconds>(
-                    end - begin).count()),
+                    end - begin)
+                            .count()),
             std::memory_order_relaxed);
     return oboe::DataCallbackResult::Continue;
 }

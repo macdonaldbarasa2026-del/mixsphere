@@ -60,18 +60,20 @@ class DeckEngine {
     void setCrossfader(double position);
     void seek(int deck, double fraction);
 
-    double renderedEnergy() const { return m_energy.load(std::memory_order_relaxed); }
+    double renderedEnergy() const {
+        return m_energy.load(std::memory_order_relaxed);
+    }
     float renderedTempo(int deck) const;
     bool renderedKeylock(int deck) const;
-    int outputSampleRate() const { return m_outputSampleRate.load(std::memory_order_relaxed); }
+    int outputSampleRate() const {
+        return m_outputSampleRate.load(std::memory_order_relaxed);
+    }
     void setOutputSampleRate(int sampleRate);
 
   private:
     void renderDeck(Deck& deck, float gain, std::span<float> interleaved);
-    void renderPlain(Deck& deck, const PcmTrack& track, float gain, float tempo,
-            std::span<float> interleaved);
-    void renderKeylocked(Deck& deck, const PcmTrack& track, float gain, float tempo,
-            std::span<float> interleaved);
+    void renderPlain(Deck& deck, const PcmTrack& track, float gain, float tempo, std::span<float> interleaved);
+    void renderKeylocked(Deck& deck, const PcmTrack& track, float gain, float tempo, std::span<float> interleaved);
     static void sampleAt(const PcmTrack& track, double position, float& left, float& right);
 
     std::array<Deck, 2> m_decks;

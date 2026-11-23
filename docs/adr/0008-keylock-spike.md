@@ -5,6 +5,7 @@
 - Owner: Software Engineer
 
 ## Context
+
 The Phase 0 gate requires a tempo change with keylock. Mixxx implements this
 with SoundTouch (`EngineBufferScaleST`) and RubberBand
 (`EngineBufferScaleRubberBand`) behind `EngineBufferScale`, a `QObject`. Those
@@ -17,6 +18,7 @@ SoundTouch's `putFrames`/`receiveFrames` from the Oboe callback does not meet
 that rule because its internal FIFO can grow.
 
 ## Decision
+
 For Phase 0 only, implement a preallocated granular overlap-add time stretcher
 in `DeckEngine` (4 Hann-windowed grains, fixed grain size 1024 source frames).
 Source is read at unit rate so pitch is preserved; grain launch spacing follows
@@ -26,6 +28,7 @@ Phase 3 replaces this unit with Mixxx's RubberBand-backed
 `EngineBufferScaleRubberBand` once the full engine target is proven.
 
 ## Consequences
+
 - Keylock is real DSP with audible pitch preservation, not a resampling shortcut.
 - Audio quality is below RubberBand; this is documented as spike-grade, not
   master-grade, and must not be presented as the final Mixsphere keylock.

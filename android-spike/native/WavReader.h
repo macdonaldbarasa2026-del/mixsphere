@@ -15,8 +15,12 @@ struct PcmTrack {
     std::vector<float> samples;
     int channels = 0;
     int sampleRate = 0;
-    bool valid() const { return channels > 0 && sampleRate > 0 && !samples.empty(); }
-    int frames() const { return channels > 0 ? static_cast<int>(samples.size() / channels) : 0; }
+    bool valid() const {
+        return channels > 0 && sampleRate > 0 && !samples.empty();
+    }
+    int frames() const {
+        return channels > 0 ? static_cast<int>(samples.size() / channels) : 0;
+    }
 };
 
 class WavReader {

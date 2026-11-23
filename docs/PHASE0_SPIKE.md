@@ -8,7 +8,7 @@ Status: Implemented in branch `feat/phase0-native-spike`; **not yet verified** b
 `android-spike/native/` builds `libmixsphere_engine.so`:
 
 | Component | Source | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Crossfader DSP | Mixxx `src/engine/enginexfader.cpp` | Compiled from the fork, upstream header intact, constant-power curve |
 | Audio output | `OboeOutput.*` | AAudio preferred, OpenSL ES fallback; callback does only render + timing |
 | Deck engine | `DeckEngine.*` | Two decks, linear resample or granular keylock, preallocated, atomic controls |

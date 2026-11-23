@@ -6,9 +6,9 @@
  */
 #include <jni.h>
 
+#include <exception>
 #include <memory>
 #include <new>
-#include <exception>
 #include <string>
 #include <utility>
 
@@ -20,7 +20,9 @@ namespace {
 
 struct EngineHandle {
     explicit EngineHandle(int sampleRate)
-            : engine(sampleRate), output(&engine) {}
+            : engine(sampleRate),
+              output(&engine) {
+    }
     mixsphere::DeckEngine engine;
     mixsphere::OboeOutput output;
 };
@@ -111,6 +113,22 @@ Java_com_mixsphere_engine_MixsphereEngine_nativeSetCrossfader(
         JNIEnv*, jobject, jlong handle, jdouble position) {
     if (auto* h = handleOf(handle)) {
         h->engine.setCrossfader(position);
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_com_mixsphere_engine_MixsphereEngine_nativeSeek(
+        JNIEnv*, jobject, jlong handle, jint deck, jdouble fraction) {
+    if (auto* h = handleOf(handle)) {
+        h->engine.seek(deck, fraction);
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_com_mixsphere_engine_MixsphereEngine_nativeSetGain(
+        JNIEnv*, jobject, jlong handle, jint deck, jdouble gain) {
+    if (auto* h = handleOf(handle)) {
+        h->engine.setGain(deck, gain);
     }
 }
 

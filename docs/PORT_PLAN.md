@@ -18,7 +18,7 @@ Prove, with CI evidence, that a Mixxx-derived engine can be loaded into an Andro
 ## 2. Dependency audit (build status on NDK, decision)
 
 | Dependency | Mixxx usage | NDK status | Decision | Rationale |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | Qt 6.2+ (`Core`, `Sql`, `Concurrent`, `Xml`, `Network`) | ControlObject/QObject, QtSql library, settings, threading | Supported by Qt for Android | **Keep** in engine target | Rewriting QObject/signal-slot semantics would touch hundreds of files; QtCore has no UI dependency |
 | Qt `Widgets`, `Qml`, `Quick`, `Gui`, `Svg`, `PrintSupport`, `OpenGL` | Skins/dialogs/cover art | Mostly supported; PrintSupport is not a meaningful Android target | **Exclude** from engine target | UI is Jetpack Compose; excluding cuts ~151 sources and APK size |
 | PortAudio (`lib/portaudio`) | `SoundDevicePortAudio`, enumeration | Vendored, has legacy Android OpenSL support but stalled | **Replace** with Oboe | Oboe is Google's supported low-latency API (AAudio → OpenSLES fallback) |
@@ -39,6 +39,7 @@ Every patch applied to Mixxx sources or build files will be recorded in `docs/PA
 **Recommendation: keep QtCore + QtSql + QtConcurrent + QtXml + QtNetwork; drop Widgets/QML/Gui from the engine target.**
 
 Reasons:
+
 1. `ControlObject` and major engine classes are `QObject` with `Q_OBJECT`; signals/slots are structural, not incidental.
 2. Upstream already provides an Android Qt build path and pinned vcpkg environment — following it is the lowest-risk proof.
 3. QtCore modules have no UI dependency and a modest footprint.
@@ -63,6 +64,7 @@ Oboe AudioStream (AAudio preferred, OpenSLES fallback)  <----+
 ```
 
 Rules enforced in the spike:
+
 - `onAudioReady` only calls `EngineMixer::buffer()` and copies the returned span into `audioData`.
 - All control changes go through atomic `ControlValue` writes (already lock-free in Mixxx).
 - Waveform/analysis data crosses to UI through the vendored `rigtorp/SPSCQueue` (`lib/rigtorp/SPSCQueue/include`, already used by Mixxx).
@@ -71,7 +73,7 @@ Rules enforced in the spike:
 ## 5. Decoding decision (ADR-0004)
 
 | Option | Fit for a DJ deck | OS | Verdict |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | MediaCodec | Async buffer queues, seek granularity and format variability are poor for scratching/looping | Android platform | Defer |
 | FFmpeg (LGPL) | Already in Mixxx, accurate seek, MP3/AAC/FLAC/OGG/WAV | LGPL 2.1+ | **Primary** |
 | dr_libs / minimp3 | Tiny, CC0, accurate MP3 seek, no AAC | CC0/public domain | Optional future MP3-only fast path |
@@ -80,7 +82,9 @@ Rules enforced in the spike:
 ## 6. Engine extraction strategy and fallback
 
 ### Primary
+
 Create a new CMake target `mixsphere_engine` (output `libmixsphere_engine.so`) in the fork:
+
 - Include `src/control/`, `src/engine/`, `src/effects/` (builtin backend only), `src/analyzer/`, `src/sources/`, `src/audio/`, `src/util/`, `src/track/`, `lib/qm-dsp`, `lib/rigtorp`.
 - Exclude `src/skin/`, `src/dialog/`, `src/widget/`, `src/preferences/ UI`, QML, PrintSupport, Svg, network broadcast, external library integrations.
 - Add `src/android/oboe_sound_device.*` implementing the `SoundDevice`/`AudioSource` seam.
@@ -88,16 +92,20 @@ Create a new CMake target `mixsphere_engine` (output `libmixsphere_engine.so`) i
 - Apply minimal, documented patches to sever `EngineMixer`'s include of `RecordingManager` if needed (replace with a small `IMasterRecorder` interface backed by a real file encoder — no stubs).
 
 ### Fallback trigger
+
 Invoke if CI log shows any of:
+
 - more than ~30 Mixxx sources require GUI-only headers after exclusion, or
 - Qt Android + vcpkg dependency provisioning fails to produce a working cross-build after two documented CI iterations.
 
 ### Fallback
+
 Build `libmixsphere_engine.so` from Mixxx DSP units only (`enginexfader`, `enginefilter*`, `enginebufferscale*`, `bpmcontrol`/`qm-dsp`, `loopingcontrol`, `cuecontrol`, `analyzerwaveform`) and write a fresh `DeckEngine` around Oboe with lock-free command queues. DSP remains Mixxx code with headers intact; the orchestration layer is new Mixsphere code. The build log evidence and unit tests are attached to the same PR.
 
 ## 7. Build and CI (cloud only)
 
 Pinned Phase 0 tool versions currently present in the spike:
+
 - NDK `27.2.12479018` (from Mixxx `tools/android_buildenv.sh`)
 - Android API 35, build-tools `35.0.0`
 - Temurin JDK `17.0.21.1+2` in the Phase 0 workflow
@@ -109,6 +117,7 @@ Pinned Phase 0 tool versions currently present in the spike:
 The current app ABI filter is `arm64-v8a`. The upstream dependency bundle selected by `tools/android_buildenv.sh` uses the `arm64-android` triplet; an `armeabi-v7a` Qt/dependency package has not been identified or built. Phase 0 cannot claim the required second ABI until that dependency path is proven.
 
 Current workflow jobs (pull requests and manual dispatch):
+
 1. Static placeholder-marker check for the native and Kotlin/Android sources.
 2. Host C++ GTest suite for WAV parsing, Mixxx crossfader DSP, deck rendering, and control bounds.
 3. Kotlin JVM tests for tempo input validation.
@@ -116,9 +125,11 @@ Current workflow jobs (pull requests and manual dispatch):
 5. API 35 arm64 emulator test starts Oboe, plays the generated file, checks callback-observed tempo/keylock controls, captures callback duration and latency, and uploads the log and test report.
 
 Known CI gaps: lint/header validation is not yet implemented; `armeabi-v7a` is not built because the pinned Mixxx build environment only provides the `arm64-android` Qt triplet; workflow status and artifacts for the latest code edits are pending. The workflow is not a green gate until every required job passes and the APK/log artifacts are reviewed.
+
 ## 8. Proof of life (gate)
 
 An instrumented test that:
+
 1. Starts the app's `MixsphereEngine` through JNI.
 2. Loads a locally generated two-second 48 kHz PCM16 sine WAV fixture (generated in the instrumented test; no third-party audio asset).
 3. Starts an Oboe stream and playback; asserts callback output is non-silent.

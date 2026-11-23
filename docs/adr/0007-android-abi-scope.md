@@ -5,8 +5,10 @@
 - Owner: Software Engineer
 
 ## Context
+
 The environment rules ask for NDK builds on `arm64-v8a` and `armeabi-v7a`.
 Evidence from the fork:
+
 - `tools/android_buildenv.sh` selects exactly one vcpkg triplet for Android:
   `arm64-android` (or `arm64-android-rel`), with `ANDROID_API=35` and NDK
   `27.2.12479018`.
@@ -20,10 +22,12 @@ Android 6.x no longer ships a 32-bit ARM artifact in the standard online
 installer channels used by this build.
 
 ## Decision
+
 Phase 0 builds and tests `arm64-v8a` only. armeabi-v7a is explicitly out of
 scope for this phase.
 
 ## Consequences
+
 - The original environment-rule expectation of a 32-bit CI build is not met in
   Phase 0; this ADR is the required evidence-based feasibility statement.
 - Alternative for a later phase: cross-build the entire dependency set for
