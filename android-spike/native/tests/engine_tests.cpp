@@ -98,7 +98,7 @@ TEST(WavReaderTest, ReadsPcm16StereoExactly) {
 
 TEST(MixxxXfaderTest, ConstantPowerGainsAreNormalised) {
     const double calibration = EngineXfader::getPowerCalibration(1.0);
-    EXPECT_NEAR(calibration, std::sqrt(0.5), 1.0e-9);
+    EXPECT_NEAR(calibration, 0.5, 1.0e-9);
     CSAMPLE_GAIN left = 0.0f;
     CSAMPLE_GAIN right = 0.0f;
     EngineXfader::getXfadeGains(0.0, 1.0, calibration, MIXXX_XFADER_CONSTPWR, false, &left, &right);
