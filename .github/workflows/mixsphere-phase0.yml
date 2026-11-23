@@ -135,7 +135,8 @@ jobs:
             echo "${BUILDENV_SHA256}  ${BUILDENV_NAME}.zip" | sha256sum -c -
             unzip -q "${BUILDENV_NAME}.zip"
           fi
-          find "${MIXXX_VCPKG_ROOT}/installed/arm64-android" -type f -name '*.so' | wc -l
+          echo "shared libraries: $(find "${MIXXX_VCPKG_ROOT}/installed/arm64-android" -type f -name '*.so' | wc -l)"
+          find "${MIXXX_VCPKG_ROOT}/installed/arm64-android" -type f \( -name 'Qt6Config.cmake' -o -name 'qt6-config.cmake' \) -print -quit
 
       - name: Build native engine with Gradle/NDK
         uses: gradle/actions/setup-gradle@v4
@@ -146,14 +147,25 @@ jobs:
         shell: bash
         run: |
           mkdir -p android-spike/app/src/main/jniLibs/arm64-v8a
-          mapfile -t qt_libraries < <(find "${QT_ANDROID_CMAKE_PREFIX_PATH}" -type f -name '*.so' | grep -v '/debug/')
-          if ((${#qt_libraries[@]} == 0)); then
+          copied=0
+          while IFS= read -r -d '' library; do
+            case "$library" in
+              */debug/*) continue ;;
+            esac
+            cp "$library" android-spike/app/src/main/jniLibs/arm64-v8a/
+            copied=$((copied + 1))
+          done < <(find "${QT_ANDROID_CMAKE_PREFIX_PATH}" -type f -name '*.so' -print0)
+          if ((copied == 0)); then
+            while IFS= read -r -d '' library; do
+              cp "$library" android-spike/app/src/main/jniLibs/arm64-v8a/
+              copied=$((copied + 1))
+            done < <(find "${QT_ANDROID_CMAKE_PREFIX_PATH}" -type f -name '*.so' -print0)
+          fi
+          if ((copied == 0)); then
             echo "No Qt Android shared libraries found under ${QT_ANDROID_CMAKE_PREFIX_PATH}" >&2
             exit 1
           fi
-          for library in "${qt_libraries[@]}"; do
-            cp "$library" android-spike/app/src/main/jniLibs/arm64-v8a/
-          done
+          echo "staged $copied shared libraries"
           du -sh android-spike/app/src/main/jniLibs/arm64-v8a/
 
       - name: Assemble debug APK
@@ -228,7 +240,8 @@ jobs:
             echo "${BUILDENV_SHA256}  ${BUILDENV_NAME}.zip" | sha256sum -c -
             unzip -q "${BUILDENV_NAME}.zip"
           fi
-          find "${MIXXX_VCPKG_ROOT}/installed/arm64-android" -type f -name '*.so' | wc -l
+          echo "shared libraries: $(find "${MIXXX_VCPKG_ROOT}/installed/arm64-android" -type f -name '*.so' | wc -l)"
+          find "${MIXXX_VCPKG_ROOT}/installed/arm64-android" -type f \( -name 'Qt6Config.cmake' -o -name 'qt6-config.cmake' \) -print -quit
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -239,14 +252,25 @@ jobs:
         shell: bash
         run: |
           mkdir -p android-spike/app/src/main/jniLibs/arm64-v8a
-          mapfile -t qt_libraries < <(find "${QT_ANDROID_CMAKE_PREFIX_PATH}" -type f -name '*.so' | grep -v '/debug/')
-          if ((${#qt_libraries[@]} == 0)); then
+          copied=0
+          while IFS= read -r -d '' library; do
+            case "$library" in
+              */debug/*) continue ;;
+            esac
+            cp "$library" android-spike/app/src/main/jniLibs/arm64-v8a/
+            copied=$((copied + 1))
+          done < <(find "${QT_ANDROID_CMAKE_PREFIX_PATH}" -type f -name '*.so' -print0)
+          if ((copied == 0)); then
+            while IFS= read -r -d '' library; do
+              cp "$library" android-spike/app/src/main/jniLibs/arm64-v8a/
+              copied=$((copied + 1))
+            done < <(find "${QT_ANDROID_CMAKE_PREFIX_PATH}" -type f -name '*.so' -print0)
+          fi
+          if ((copied == 0)); then
             echo "No Qt Android shared libraries found under ${QT_ANDROID_CMAKE_PREFIX_PATH}" >&2
             exit 1
           fi
-          for library in "${qt_libraries[@]}"; do
-            cp "$library" android-spike/app/src/main/jniLibs/arm64-v8a/
-          done
+          echo "staged $copied shared libraries"
 
       - name: Run instrumented proof of life
         uses: reactivecircus/android-emulator-runner@v2

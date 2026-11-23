@@ -7,6 +7,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(MIXXX_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." CACHE PATH "Root of the Mixxx-derived source tree")
 
+if(DEFINED ENV{QT_ANDROID_CMAKE_PREFIX_PATH})
+  list(APPEND CMAKE_PREFIX_PATH
+    "$ENV{QT_ANDROID_CMAKE_PREFIX_PATH}"
+    "$ENV{QT_ANDROID_CMAKE_PREFIX_PATH}/share/Qt6"
+    "$ENV{QT_ANDROID_CMAKE_PREFIX_PATH}/lib/cmake/Qt6")
+endif()
 find_package(Qt6 6.2 REQUIRED COMPONENTS Core)
 
 include(FetchContent)
