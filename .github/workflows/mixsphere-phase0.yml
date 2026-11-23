@@ -124,6 +124,19 @@ jobs:
           echo "QT_ANDROID_CMAKE_PREFIX_PATH=${MIXXX_VCPKG_ROOT}/installed/arm64-android" >> "$GITHUB_ENV"
           echo "MIXXX_VCPKG_ROOT=${MIXXX_VCPKG_ROOT}" >> "$GITHUB_ENV"
 
+      - name: Provision pinned Android dependency bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${BUILDENV_BASEPATH}"
+          cd "${BUILDENV_BASEPATH}"
+          if [ ! -d "${BUILDENV_NAME}" ]; then
+            curl -fL --retry 3 --output "${BUILDENV_NAME}.zip" "${BUILDENV_URL}"
+            echo "${BUILDENV_SHA256}  ${BUILDENV_NAME}.zip" | sha256sum -c -
+            unzip -q "${BUILDENV_NAME}.zip"
+          fi
+          find "${MIXXX_VCPKG_ROOT}/installed/arm64-android" -type f -name '*.so' | head -20
+
       - name: Build native engine with Gradle/NDK
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -133,13 +146,14 @@ jobs:
         shell: bash
         run: |
           mkdir -p android-spike/app/src/main/jniLibs/arm64-v8a
-          shopt -s nullglob
-          qt_libraries=("${QT_ANDROID_CMAKE_PREFIX_PATH}"/lib/*.so)
+          mapfile -t qt_libraries < <(find "${QT_ANDROID_CMAKE_PREFIX_PATH}" -type f -name '*.so' | grep -v '/debug/')
           if ((${#qt_libraries[@]} == 0)); then
-            echo "No Qt Android shared libraries found under ${QT_ANDROID_CMAKE_PREFIX_PATH}/lib" >&2
+            echo "No Qt Android shared libraries found under ${QT_ANDROID_CMAKE_PREFIX_PATH}" >&2
             exit 1
           fi
-          cp "${qt_libraries[@]}" android-spike/app/src/main/jniLibs/arm64-v8a/
+          for library in "${qt_libraries[@]}"; do
+            cp "$library" android-spike/app/src/main/jniLibs/arm64-v8a/
+          done
           ls -la android-spike/app/src/main/jniLibs/arm64-v8a/ | head -30
 
       - name: Assemble debug APK
@@ -203,6 +217,19 @@ jobs:
         shell: bash
         run: echo "QT_ANDROID_CMAKE_PREFIX_PATH=${MIXXX_VCPKG_ROOT}/installed/arm64-android" >> "$GITHUB_ENV"
 
+      - name: Provision pinned Android dependency bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${BUILDENV_BASEPATH}"
+          cd "${BUILDENV_BASEPATH}"
+          if [ ! -d "${BUILDENV_NAME}" ]; then
+            curl -fL --retry 3 --output "${BUILDENV_NAME}.zip" "${BUILDENV_URL}"
+            echo "${BUILDENV_SHA256}  ${BUILDENV_NAME}.zip" | sha256sum -c -
+            unzip -q "${BUILDENV_NAME}.zip"
+          fi
+          find "${MIXXX_VCPKG_ROOT}/installed/arm64-android" -type f -name '*.so' | head -20
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -212,13 +239,14 @@ jobs:
         shell: bash
         run: |
           mkdir -p android-spike/app/src/main/jniLibs/arm64-v8a
-          shopt -s nullglob
-          qt_libraries=("${QT_ANDROID_CMAKE_PREFIX_PATH}"/lib/*.so)
+          mapfile -t qt_libraries < <(find "${QT_ANDROID_CMAKE_PREFIX_PATH}" -type f -name '*.so' | grep -v '/debug/')
           if ((${#qt_libraries[@]} == 0)); then
-            echo "No Qt Android shared libraries found under ${QT_ANDROID_CMAKE_PREFIX_PATH}/lib" >&2
+            echo "No Qt Android shared libraries found under ${QT_ANDROID_CMAKE_PREFIX_PATH}" >&2
             exit 1
           fi
-          cp "${qt_libraries[@]}" android-spike/app/src/main/jniLibs/arm64-v8a/
+          for library in "${qt_libraries[@]}"; do
+            cp "$library" android-spike/app/src/main/jniLibs/arm64-v8a/
+          done
 
       - name: Run instrumented proof of life
         uses: reactivecircus/android-emulator-runner@v2
