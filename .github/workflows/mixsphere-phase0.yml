@@ -154,7 +154,7 @@ jobs:
           for library in "${qt_libraries[@]}"; do
             cp "$library" android-spike/app/src/main/jniLibs/arm64-v8a/
           done
-          ls -la android-spike/app/src/main/jniLibs/arm64-v8a/ | head -30
+          du -sh android-spike/app/src/main/jniLibs/arm64-v8a/
 
       - name: Assemble debug APK
         working-directory: android-spike

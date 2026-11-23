@@ -112,7 +112,7 @@ TEST(DeckEngineTest, RendersAudibleOutput) {
     auto track = std::make_unique<const PcmTrack>(makeTrack(96000, 48000, 440.0));
     ASSERT_TRUE(engine.load(0, std::move(track)));
     engine.setCrossfader(-1.0);
-    engine.play(0, true);
+    engine.setPlaying(0, true);
     std::vector<float> buffer(4096);
     engine.render(buffer);
     EXPECT_GT(engine.renderedEnergy(), 1.0);
@@ -123,7 +123,7 @@ TEST(DeckEngineTest, TempoChangeWithKeylockRemainsAudible) {
     auto track = std::make_unique<const PcmTrack>(makeTrack(96000, 48000, 440.0));
     ASSERT_TRUE(engine.load(0, std::move(track)));
     engine.setCrossfader(-1.0);
-    engine.play(0, true);
+    engine.setPlaying(0, true);
     std::vector<float> buffer(8192);
 
     engine.setTempo(0, 1.10, true);
