@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow
+
+name: CrossFlow watch compile
+
+on:
+  push:
+    paths:
+      - "res/qml/Skins/CrossFlow/**"
+      - "tools/crossflow_qml_check.py"
+      - ".github/workflows/crossflow-watch.yml"
+  pull_request:
+    paths:
+      - "res/qml/Skins/CrossFlow/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  skin-structure:
+    name: CrossFlow QML structure
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Validate skin structure
+        run: python3 tools/crossflow_qml_check.py
+
+  qmllint:
+    name: qmllint (advisory)
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Install qmllint
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qt6-declarative-dev-tools
+      - name: Parse skin QML
+        run: |
+          qmllint --version
+          qmllint -I res/qml -I res/qml/Deck res/qml/Skins/CrossFlow/*.qml
