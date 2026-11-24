@@ -1,0 +1,60 @@
+name: Mixsphere DJ — signed release APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Install upload key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MIXSPHERE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.MIXSPHERE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.MIXSPHERE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.MIXSPHERE_KEY_PASSWORD }}
+        run: |
+          mkdir -p mixsphere-app/keystore
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > mixsphere-app/keystore/mixsphere-release.jks
+          cat > mixsphere-app/keystore/keystore.properties <<EOF
+          storeFile=keystore/mixsphere-release.jks
+          storePassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - name: Build signed release APK
+        working-directory: mixsphere-app
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mixsphere-dj-release
+          path: mixsphere-app/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error

@@ -1,0 +1,14 @@
+# Research / upstream trees are not part of the product repository
+mixxx-android/
+android-spike/
+docs/
+build-artifacts/
+
+# Local-only files
+*.iml
+.gradle/
+build/
+local.properties
+**/keystore/*.jks
+**/keystore/keystore.properties
+.DS_Store

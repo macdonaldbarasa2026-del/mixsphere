@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mixsphere DJ</string>
+    <string name="loading">LOADING…</string>
+    <string name="no_track">NO TRACK</string>
+</resources>

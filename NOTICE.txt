@@ -1,0 +1,13 @@
+Third-party notices for Mixsphere DJ
+
+1. AndroidX Core KTX and AppCompat (Android Open Source Project)
+   Licensed under the Apache License, Version 2.0.
+   https://www.apache.org/licenses/LICENSE-2.0
+
+2. DJ transition samples in mixsphere-app/app/src/main/assets/samples
+   "SFX Kit" by Wyzowl — CC0 1.0 Universal (public domain).
+   https://github.com/wyzowl/sfx-kit
+   See the LICENSE.txt in that directory for the exact source file list.
+
+All other application code and visual design in mixsphere-app is original and
+proprietary. No Mixxx (GPL) or Cross DJ (Mixvibes) code or assets are included.

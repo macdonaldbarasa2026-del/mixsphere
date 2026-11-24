@@ -1,0 +1,23 @@
+SFX Kit by Wyzowl — https://github.com/wyzowl/sfx-kit
+License: CC0 1.0 Universal (public domain, no attribution required).
+
+The following source files were used for Mixsphere Phase 0 sample pads:
+  sounds/risers-and-fallers/riser-2s-strong.wav
+  sounds/risers-and-fallers/riser-4s-strong.wav
+  sounds/risers-and-fallers/faller-2s-strong.wav
+  sounds/risers-and-fallers/faller-4s-strong.wav
+  sounds/reverse-whooshes/reverse-whoosh-short-strong.wav
+  sounds/reverse-whooshes/reverse-whoosh-long-strong.wav
+  sounds/whooshes/whoosh-fast-hard.wav
+  sounds/whooshes/whoosh-slow-hard.wav
+  sounds/impacts/impact-heavy-hard.wav
+  sounds/impacts/impact-deep-hard.wav
+  sounds/impacts/impact-medium-hard.wav
+  sounds/booms-and-bass/bass-sub-drop-short.wav
+  sounds/booms-and-bass/bass-sub-drop-medium.wav
+  sounds/booms-and-bass/boom-drop-strong.wav
+  sounds/cinematic-hits/cinematic-slam-big.wav
+  sounds/booms-and-bass/bass-808-medium.wav
+
+All bundled files were converted from 24-bit to 16-bit PCM WAV without
+changing sample rate or channel count. No Cross DJ audio or assets are used.
