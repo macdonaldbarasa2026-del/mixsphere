@@ -17,6 +17,31 @@ class WaveformView(context: Context, private val color: Int) : View(context) {
     private var peaks = FloatArray(0)
     private var progress = 0f
     private var active = false
+    private var scrubbing = false
+    var onSeek: ((Float) -> Unit)? = null
+
+    init {
+        isClickable = true
+    }
+    private var zoom = 1
+
+    fun setZoom(value: Int) {
+        val next = value.coerceIn(1, 8)
+        if (next != zoom) {
+            zoom = next
+            invalidate()
+        }
+    }
+
+    fun zoomLevel(): Int = zoom
+
+    private fun visibleSamples(): Int =
+        (peaks.size / zoom).coerceAtLeast(1)
+
+    private fun windowStart(visible: Int): Int {
+        val centre = progress * peaks.size - visible / 2f
+        return centre.toInt().coerceIn(0, maxOf(0, peaks.size - visible))
+    }
 
     fun setPeaks(next: FloatArray?) {
         peaks = next ?: FloatArray(0)
@@ -37,8 +62,51 @@ class WaveformView(context: Context, private val color: Int) : View(context) {
         }
     }
 
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                scrubbing = true
+                parent?.requestDisallowInterceptTouchEvent(true)
+                seekAt(event.x)
+                invalidate()
+            }
+            MotionEvent.ACTION_MOVE -> if (scrubbing) seekAt(event.x)
+            MotionEvent.ACTION_UP -> if (scrubbing) {
+                seekAt(event.x)
+                scrubbing = false
+                parent?.requestDisallowInterceptTouchEvent(false)
+                performClick()
+                invalidate()
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                scrubbing = false
+                parent?.requestDisallowInterceptTouchEvent(false)
+                invalidate()
+            }
+        }
+        return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
+    private fun seekAt(x: Float) {
+        if (width <= 0 || peaks.isEmpty()) return
+        val visible = visibleSamples()
+        val trackPosition = windowStart(visible) +
+            x.coerceIn(0f, width.toFloat()) / width * visible
+        val fraction = (trackPosition / peaks.size)
+            .coerceIn(0f, 1f)
+        progress = fraction
+        onSeek?.invoke(fraction)
+        invalidate()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        if (width <= 0 || height <= 0) return
         paint.color = Theme.SCOPE
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
         paint.color = Theme.GRID
@@ -49,26 +117,37 @@ class WaveformView(context: Context, private val color: Int) : View(context) {
             canvas.drawLine(x.toFloat(), 0f, x.toFloat(), height.toFloat(), paint)
         }
         if (peaks.isNotEmpty()) {
-            val step = width.toFloat() / peaks.size
+            val visible = visibleSamples()
+            val start = windowStart(visible)
+            val columns = minOf(visible, width)
+            val step = width.toFloat() / columns
             val passed = progress * peaks.size
-            for (i in peaks.indices) {
-                val amplitude = peaks[i] * mid * 0.92f
+            paint.color = Theme.GRID
+            for (tick in 0..columns step maxOf(8, columns / 12)) {
+                val x = tick * step
+                canvas.drawLine(x, 0f, x, height.toFloat(), paint)
+            }
+            for (column in 0 until columns) {
+                val first = start + column * visible / columns
+                val end = (start + (column + 1) * visible / columns)
+                    .coerceAtLeast(first + 1)
+                    .coerceAtMost(start + visible)
+                if (first >= end) continue
+                var peak = 0f
+                for (i in first until end) peak = max(peak, peaks[i])
+                val amplitude = peak * mid * 0.92f
                 if (amplitude < 1f) continue
-                paint.color = if (i <= passed) color else Theme.BG3
-                paint.strokeWidth = max(2f, step * 0.7f)
-                val x = i * step + step * 0.5f
+                paint.color = if (first <= passed) color else Theme.BG3
+                paint.strokeWidth = max(1f, step * 0.7f)
+                val x = column * step + step * 0.5f
                 canvas.drawLine(x, mid - amplitude, x, mid + amplitude, paint)
             }
         }
-        if (active) {
-            paint.color = color
-            paint.strokeWidth = 1f
-            val playhead = progress * width
-            canvas.drawLine(playhead, 0f, playhead, height.toFloat(), paint)
-        }
-        paint.color = Color.WHITE
+        paint.color = if (active) color else Color.WHITE
         paint.strokeWidth = 2f
-        val playhead = progress * width
+        val visible = if (peaks.isEmpty()) 1 else visibleSamples()
+        val playhead = ((progress * peaks.size - windowStart(visible)) / visible)
+            .coerceIn(0f, 1f) * width
         canvas.drawLine(playhead, 0f, playhead, height.toFloat(), paint)
     }
 }
@@ -89,6 +168,7 @@ class JogView(context: Context, private val color: Int, private val letter: Stri
     }
 
     fun setPosition(fraction: Float) {
+        if (dragging) return
         val next = fraction.coerceIn(0f, 1f) * (2f * PI.toFloat())
         if (kotlin.math.abs(next - angle) > 0.01f) {
             angle = next
@@ -106,6 +186,7 @@ class JogView(context: Context, private val color: Int, private val letter: Stri
             MotionEvent.ACTION_DOWN -> {
                 dragging = true
                 lastAngle = a
+                invalidate()
             }
             MotionEvent.ACTION_MOVE -> if (dragging) {
                 var delta = a - lastAngle
@@ -118,6 +199,7 @@ class JogView(context: Context, private val color: Int, private val letter: Stri
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 dragging = false
+                invalidate()
             }
         }
         return true

@@ -23,26 +23,45 @@ class MixerEngine(private val outputRate: Int = 48_000) : AutoCloseable {
     private var mixerThread: Thread? = null
     private val framesPerBuffer = 1920
     private val mixBuffer = FloatArray(framesPerBuffer * 2)
+    private val shortBuffer = ShortArray(mixBuffer.size)
+    private var usePcm16 = false
 
     fun start() {
         if (isRunning) return
-        val audioTrack = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build()
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
-                    .setSampleRate(outputRate)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                    .build()
-            )
-            .setBufferSizeInBytes(framesPerBuffer * 2 * Float.SIZE_BYTES * 2)
-            .setTransferMode(AudioTrack.MODE_STREAM)
+        val attributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
             .build()
+        var audioTrack: AudioTrack
+        try {
+            audioTrack = AudioTrack.Builder()
+                .setAudioAttributes(attributes)
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                        .setSampleRate(outputRate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                        .build()
+                )
+                .setBufferSizeInBytes(framesPerBuffer * 2 * Float.SIZE_BYTES * 2)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+            usePcm16 = false
+        } catch (e: Exception) {
+            usePcm16 = true
+            audioTrack = AudioTrack.Builder()
+                .setAudioAttributes(attributes)
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(outputRate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                        .build()
+                )
+                .setBufferSizeInBytes(framesPerBuffer * 2 * Short.SIZE_BYTES * 2)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+        }
         audioTrack.play()
         track = audioTrack
         isRunning = true
@@ -96,7 +115,14 @@ class MixerEngine(private val outputRate: Int = 48_000) : AutoCloseable {
             }
             masterLevel = peak
             try {
-                audioTrack.write(mixBuffer, 0, mixBuffer.size, AudioTrack.WRITE_BLOCKING)
+                if (usePcm16) {
+                    for (i in mixBuffer.indices) {
+                        shortBuffer[i] = (mixBuffer[i] * 32767f).toInt().toShort()
+                    }
+                    audioTrack.write(shortBuffer, 0, shortBuffer.size, AudioTrack.WRITE_BLOCKING)
+                } else {
+                    audioTrack.write(mixBuffer, 0, mixBuffer.size, AudioTrack.WRITE_BLOCKING)
+                }
             } catch (e: Exception) {
                 isRunning = false
             }

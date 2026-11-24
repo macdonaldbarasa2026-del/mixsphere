@@ -5,7 +5,9 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import android.util.Log
 import java.io.File
+import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.abs
@@ -46,13 +48,36 @@ object AudioDecoder {
     private const val MAX_SECONDS = 240
     private const val TARGET_RATE = 48_000
     private const val PEAK_BUCKETS = 1200
+    private const val TAG = "MixsphereDecode"
 
-    fun decode(context: Context, uri: Uri): DecodedTrack? = try {
-        val extractor = MediaExtractor()
-        extractor.setDataSource(context, uri, null)
-        decodeExtractor(extractor)
-    } catch (e: Exception) {
-        null
+    fun decode(context: Context, uri: Uri): DecodedTrack? {
+        var temporary: File? = null
+        return try {
+            val mime = context.contentResolver.getType(uri) ?: "audio/*"
+            val extension = when {
+                mime.contains("wav") -> ".wav"
+                mime.contains("ogg") -> ".ogg"
+                mime.contains("flac") -> ".flac"
+                mime.contains("mpeg") || mime.contains("mp3") -> ".mp3"
+                mime.contains("mp4") || mime.contains("m4a") -> ".m4a"
+                else -> ".bin"
+            }
+            temporary = File(
+                context.cacheDir,
+                "decode-${System.currentTimeMillis()}-${abs(uri.hashCode())}$extension",
+            )
+            val input = context.contentResolver.openInputStream(uri)
+                ?: throw IllegalArgumentException("Cannot open $uri")
+            input.use { stream -> FileOutputStream(temporary).use { stream.copyTo(it) } }
+            val decoded = decodeFile(temporary)
+            if (decoded == null) Log.e(TAG, "No decoder could handle $mime ($uri)")
+            decoded
+        } catch (e: Exception) {
+            Log.e(TAG, "Decode failed: ${e.message}", e)
+            null
+        } finally {
+            temporary?.delete()
+        }
     }
 
     fun decodeAsset(context: Context, path: String): DecodedTrack? = try {
