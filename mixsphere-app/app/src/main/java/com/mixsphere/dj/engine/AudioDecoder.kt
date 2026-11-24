@@ -196,13 +196,15 @@ object AudioDecoder {
         val left = FloatArray(frameCount)
         val right = FloatArray(frameCount)
         if (isFloat) {
-            val floats = joined.asFloatBuffer().order(ByteOrder.LITTLE_ENDIAN)
+            val floats = joined.asFloatBuffer()
+            floats.order = ByteOrder.LITTLE_ENDIAN
             for (i in 0 until frameCount) {
                 left[i] = floats.get(i * channels)
                 right[i] = if (channels > 1) floats.get(i * channels + 1) else left[i]
             }
         } else {
-            val shorts = joined.asShortBuffer().order(ByteOrder.LITTLE_ENDIAN)
+            val shorts = joined.asShortBuffer()
+            shorts.order = ByteOrder.LITTLE_ENDIAN
             val scale = 1f / 32768f
             for (i in 0 until frameCount) {
                 left[i] = shorts.get(i * channels) * scale

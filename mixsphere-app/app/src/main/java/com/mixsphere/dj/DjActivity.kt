@@ -307,7 +307,9 @@ class DjActivity : Activity() {
         for (ui in deckUis) {
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             row.addView(text(if (ui.index == 0) "A" else "B", ui.color, 11f),
-                LinearLayout.LayoutParams(dp(20), MATCH, Gravity.CENTER_VERTICAL))
+                LinearLayout.LayoutParams(dp(20), MATCH).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                })
             for (entry in LOOP_BEATS) {
                 row.addView(btn(entry.first, Theme.TEXT) {
                     setLoop(ui.index, entry.second)
@@ -601,7 +603,7 @@ class DjActivity : Activity() {
 
         val scroller = ScrollView(this)
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        scroller.addView(list, ScrollView.LayoutParams(MATCH, WRAP))
+        scroller.addView(list, FrameLayout.LayoutParams(MATCH, WRAP))
         card.addView(scroller, LinearLayout.LayoutParams(MATCH, 0, 1f))
 
         val items = TrackLibrary.load(this)
