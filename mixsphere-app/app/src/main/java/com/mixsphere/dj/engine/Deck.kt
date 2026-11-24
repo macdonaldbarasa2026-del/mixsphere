@@ -39,6 +39,7 @@ class Deck(val index: Int) {
     private val seekRequest = AtomicInteger(NO_SEEK)
     private var position = 0.0
     private var outputTime = 0.0
+    private var grainSourceOrigin = 0.0
     private var lowL = 0f
     private var lowR = 0f
     private var highL = 0f
@@ -61,6 +62,7 @@ class Deck(val index: Int) {
         position = 0.0
         seekRequest.set(NO_SEEK)
         outputTime = 0.0
+        grainSourceOrigin = 0.0
         positionFraction = 0f
         playing = false
         cueFraction = 0f
@@ -193,25 +195,28 @@ class Deck(val index: Int) {
         val baseRate = current.sampleRate.toDouble() / outputRate.toDouble()
         var energy = 0f
         for (i in 0 until frames) {
+            if (loopStart >= 0f && positionFraction >= loopEnd) {
+                seekFromAudio(loopStart, current)
+            }
+            if (position >= current.frames) {
+                playing = false
+                position = current.frames.toDouble()
+                positionFraction = 1f
+                break
+            }
+
             val l: Float
             val r: Float
             if (keylock) {
                 readGrain(current, baseRate, sample)
                 l = sample[0]
                 r = sample[1]
-                position += baseRate
-                if (loopStart >= 0f && positionFraction >= loopEnd) {
-                    seekFromAudio(loopStart, current)
-                }
+                position += baseRate * tempo
             } else {
-                if (loopStart >= 0f && positionFraction >= loopEnd) {
-                    seekFromAudio(loopStart, current)
-                }
                 current.frameAt(position, sample)
                 l = sample[0]
                 r = sample[1]
                 position += baseRate * tempo
-                if (position >= current.frames) position = 0.0
             }
             positionFraction = (position / current.frames).toFloat().coerceIn(0f, 1f)
             outputTime += 1.0
@@ -253,6 +258,7 @@ class Deck(val index: Int) {
 
     private fun seekFromAudio(fraction: Float, current: DecodedTrack) {
         position = fraction.toDouble() * current.frames
+        grainSourceOrigin = position
         outputTime = 0.0
         positionFraction = fraction
     }
@@ -262,6 +268,7 @@ class Deck(val index: Int) {
         if (request == NO_SEEK) return
         val fraction = java.lang.Float.intBitsToFloat(request)
         position = fraction.toDouble() * current.frames
+        grainSourceOrigin = position
         outputTime = 0.0
         positionFraction = fraction
     }
@@ -282,7 +289,7 @@ class Deck(val index: Int) {
             val local = (t - launch) / grainOut
             if (local < 0.0 || local > 1.0) continue
             val window = (0.5 - 0.5 * cos(2.0 * PI * local)).toFloat()
-            val sourcePosition = g * hopSource + (t - launch) * baseRate
+            val sourcePosition = grainSourceOrigin + g * hopSource + (t - launch) * baseRate
             if (sourcePosition < 0.0 || sourcePosition >= current.frames) continue
             current.frameAt(sourcePosition, sample)
             l += sample[0] * window

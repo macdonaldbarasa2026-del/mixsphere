@@ -23,6 +23,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import java.lang.ref.WeakReference
 import com.mixsphere.dj.data.LibraryTrack
 import com.mixsphere.dj.data.TrackLibrary
 import com.mixsphere.dj.engine.AudioDecoder
@@ -64,6 +65,7 @@ class DjActivity : Activity() {
     private var stemBusy = false
     private var stemStatus: TextView? = null
     private val deckUris = arrayOf<Uri?>(null, null)
+    private val deckLoadGeneration = IntArray(2)
     private var pendingDeck = 0
     private val modeButtons = HashMap<String, Button>()
     private val refresh = object : Runnable {
@@ -95,6 +97,7 @@ class DjActivity : Activity() {
     override fun onDestroy() {
         stemGeneration++
         stemWorker?.interrupt()
+        for (index in deckLoadGeneration.indices) deckLoadGeneration[index]++
         handler.removeCallbacks(refresh)
         engine.close()
         sampleBank?.release()
@@ -650,32 +653,42 @@ class DjActivity : Activity() {
 
     private fun loadFromUri(uri: Uri, deckIndex: Int) {
         libraryOverlay.visibility = View.GONE
+        val generation = ++deckLoadGeneration[deckIndex]
         deckUris[deckIndex] = uri
         stemResult = null
         stemGeneration++
         stemWorker?.interrupt()
         if (deckIndex == stemSource) stemStatus?.text = "LOADING SOURCE"
-        val ui = deckUis[deckIndex]
-        ui.name.text = "LOADING…"
-        Thread {
-            val decoded = AudioDecoder.decode(this, uri)
-            handler.post {
+        deckUis[deckIndex].name.text = "LOADING…"
+        val context = applicationContext
+        val callbackHandler = handler
+        val activityReference = WeakReference(this)
+        Thread({
+            val decoded = AudioDecoder.decode(context, uri)
+            callbackHandler.post {
+                val activity = activityReference.get() ?: return@post
+                if (activity.isDestroyed ||
+                    generation != activity.deckLoadGeneration[deckIndex]
+                ) return@post
+                val ui = activity.deckUis[deckIndex]
                 if (decoded == null) {
                     ui.name.text = "UNSUPPORTED FILE"
-                    if (deckIndex == stemSource) stemStatus?.text = "SOURCE LOAD FAILED"
+                    if (deckIndex == activity.stemSource) {
+                        activity.stemStatus?.text = "SOURCE LOAD FAILED"
+                    }
                 } else {
-                    engine.load(deckIndex, decoded)
+                    activity.engine.load(deckIndex, decoded)
                     val seconds = decoded.durationMs / 1000L
-                    ui.name.text = formatTrack(uri, seconds)
+                    ui.name.text = activity.formatTrack(uri, seconds)
                     ui.bpm.text = String.format("%.1f BPM", decoded.bpm)
                     ui.wave.setPeaks(decoded.peaks)
                     ui.loaded = true
-                    if (deckIndex == stemSource) {
-                        stemStatus?.text = "LOCAL DSP • VOCAL ESTIMATE"
+                    if (deckIndex == activity.stemSource) {
+                        activity.stemStatus?.text = "LOCAL DSP • VOCAL ESTIMATE"
                     }
                 }
             }
-        }.start()
+        }, "mixsphere-track-load-$deckIndex").start()
     }
 
     private fun formatTrack(uri: Uri, seconds: Long): String {
@@ -825,12 +838,14 @@ class DjActivity : Activity() {
 
         fun tick() {
             val deck = engine.decks[index]
+            playing = deck.playing
             wave.setProgress(deck.positionFraction)
             wave.setActive(playing)
             jog.setSpinning(playing)
             jog.setPosition(deck.positionFraction)
             tempoLabel.text = rate.format()
             if (::meter.isInitialized) meter.setLevel(deck.level)
+            playButton.text = if (playing) "PAUSE" else "PLAY"
             playButton.setTextColor(if (playing) color else Theme.TEXT)
             playButton.setBackground(Theme.rounded(if (playing) color else Theme.BG2))
             keyButton.setTextColor(if (keylock) color else Theme.TEXT)
