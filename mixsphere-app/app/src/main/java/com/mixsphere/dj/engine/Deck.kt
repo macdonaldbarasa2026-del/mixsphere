@@ -8,6 +8,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.PI
+import java.util.concurrent.atomic.AtomicInteger
 
 /** One deck. All control fields are safe to write from the UI thread;
  *  playback cursors and filters belong to the audio thread only. */
@@ -23,6 +24,7 @@ class Deck(val index: Int) {
     @Volatile var eqLow = 1f
     @Volatile var eqMid = 1f
     @Volatile var eqHigh = 1f
+    @Volatile var filter = 0.5f
     @Volatile var fxType = 0
     @Volatile var fxX = 0.5f
     @Volatile var fxY = 0.5f
@@ -34,6 +36,7 @@ class Deck(val index: Int) {
     @Volatile var positionFraction = 0f
         private set
 
+    private val seekRequest = AtomicInteger(NO_SEEK)
     private var position = 0.0
     private var outputTime = 0.0
     private var lowL = 0f
@@ -49,11 +52,14 @@ class Deck(val index: Int) {
     private var lfoPhase = 0f
     private var filterL = 0f
     private var filterR = 0f
+    private var toneL = 0f
+    private var toneR = 0f
     private val fxOut = FloatArray(2)
 
     fun load(next: DecodedTrack?) {
         track = next
         position = 0.0
+        seekRequest.set(NO_SEEK)
         outputTime = 0.0
         positionFraction = 0f
         playing = false
@@ -67,6 +73,8 @@ class Deck(val index: Int) {
         highR = 0f
         filterL = 0f
         filterR = 0f
+        toneL = 0f
+        toneR = 0f
         delayL.fill(0f)
         delayR.fill(0f)
         delayIndex = 0
@@ -82,9 +90,18 @@ class Deck(val index: Int) {
     fun seek(fraction: Float) {
         val current = track ?: return
         val f = fraction.coerceIn(0f, 1f)
-        position = (f * current.frames).toDouble()
-        outputTime = 0.0
+        seekRequest.set(java.lang.Float.floatToRawIntBits(f))
         positionFraction = f
+    }
+
+    fun scratch(deltaRadians: Float) {
+        val current = track ?: return
+        if (current.frames <= 0) return
+        val framesPerRotation = current.sampleRate * (60.0 / 33.333333)
+        val deltaFrames = deltaRadians.toDouble() / (2.0 * PI) * framesPerRotation
+        val next = (positionFraction.toDouble() * current.frames + deltaFrames)
+            .coerceIn(0.0, (current.frames - 1).coerceAtLeast(0).toDouble())
+        seek((next / current.frames).toFloat())
     }
 
     fun setLoop(start: Float, end: Float) {
@@ -171,6 +188,7 @@ class Deck(val index: Int) {
             return
         }
         if (current.frames <= 0) return
+        consumeSeek(current)
 
         val baseRate = current.sampleRate.toDouble() / outputRate.toDouble()
         var energy = 0f
@@ -206,10 +224,23 @@ class Deck(val index: Int) {
             val trebleR = r - highR
             val midL = l - lowL - trebleL
             val midR = r - lowR - trebleR
-            processFx(
-                lowL * eqLow + midL * eqMid + trebleL * eqHigh,
-                lowR * eqLow + midR * eqMid + trebleR * eqHigh,
-            )
+            var eqL = lowL * eqLow + midL * eqMid + trebleL * eqHigh
+            var eqR = lowR * eqLow + midR * eqMid + trebleR * eqHigh
+            if (filter != 0.5f) {
+                val lowpass = filter < 0.5f
+                val strength = if (lowpass) filter * 2f else (1f - filter) * 2f
+                val coefficient = strength * strength * 0.35f + 0.01f
+                toneL += coefficient * (eqL - toneL)
+                toneR += coefficient * (eqR - toneR)
+                if (lowpass) {
+                    eqL = toneL
+                    eqR = toneR
+                } else {
+                    eqL -= toneL
+                    eqR -= toneR
+                }
+            }
+            processFx(eqL, eqR)
             val volume = gain * busGain
             val mixedL = fxOut[0] * volume
             val mixedR = fxOut[1] * volume
@@ -221,6 +252,15 @@ class Deck(val index: Int) {
     }
 
     private fun seekFromAudio(fraction: Float, current: DecodedTrack) {
+        position = fraction.toDouble() * current.frames
+        outputTime = 0.0
+        positionFraction = fraction
+    }
+
+    private fun consumeSeek(current: DecodedTrack) {
+        val request = seekRequest.getAndSet(NO_SEEK)
+        if (request == NO_SEEK) return
+        val fraction = java.lang.Float.intBitsToFloat(request)
         position = fraction.toDouble() * current.frames
         outputTime = 0.0
         positionFraction = fraction
@@ -256,5 +296,9 @@ class Deck(val index: Int) {
             out[0] = 0f
             out[1] = 0f
         }
+    }
+
+    companion object {
+        const val NO_SEEK = -1
     }
 }

@@ -5,6 +5,7 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.abs
@@ -59,6 +60,14 @@ object AudioDecoder {
         val extractor = MediaExtractor()
         extractor.setDataSource(descriptor.fileDescriptor, descriptor.startOffset, descriptor.length)
         descriptor.close()
+        decodeExtractor(extractor)
+    } catch (e: Exception) {
+        null
+    }
+
+    fun decodeFile(file: File): DecodedTrack? = try {
+        val extractor = MediaExtractor()
+        extractor.setDataSource(file.absolutePath)
         decodeExtractor(extractor)
     } catch (e: Exception) {
         null
@@ -153,26 +162,28 @@ object AudioDecoder {
         channels: Int,
         isFloat: Boolean,
     ): DecodedTrack? {
-        val maxBytes = MAX_SECONDS * rate * channels * 4
-        val joined = ByteBuffer.allocate(maxBytes).order(ByteOrder.LITTLE_ENDIAN)
+        val bytesPerSample = if (isFloat) 4 else 2
+        val maxBytes = MAX_SECONDS * rate * channels * bytesPerSample
+        val chunks = ArrayList<ByteArray>()
         val scratch = ByteBuffer.allocateDirect(8192)
         var total = 0
         while (total < maxBytes) {
             scratch.clear()
             val size = extractor.readSampleData(scratch, 0)
             if (size < 0) break
-            if (total + size > maxBytes) break
-            scratch.limit(size)
-            joined.put(scratch)
-            total += size
+            val copySize = minOf(size, maxBytes - total)
+            scratch.position(0)
+            scratch.limit(copySize)
+            val chunk = ByteArray(copySize)
+            scratch.get(chunk)
+            chunks.add(chunk)
+            total += copySize
+            if (copySize < size) break
             extractor.advance()
         }
         extractor.release()
         if (total <= 0) return null
-        val bytes = ByteArray(total)
-        joined.rewind()
-        joined.get(bytes)
-        return toTrack(listOf(bytes), rate, channels, isFloat)
+        return toTrack(chunks, rate, channels, isFloat)
     }
 
     private fun toTrack(chunks: List<ByteArray>, rate: Int, channels: Int, isFloat: Boolean): DecodedTrack {

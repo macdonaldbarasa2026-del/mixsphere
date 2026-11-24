@@ -56,7 +56,11 @@ class DjActivity : Activity() {
     private var fxDeck = 1
     private val fxButtons = HashMap<Int, Button>()
     private var stemResult: StemResult? = null
-    private var stemTarget = 0
+    private var stemSource = 0
+    private var stemTarget = 1
+    @Volatile private var stemGeneration = 0
+    private var stemWorkerGeneration = -1
+    private var stemWorker: Thread? = null
     private var stemBusy = false
     private var stemStatus: TextView? = null
     private val deckUris = arrayOf<Uri?>(null, null)
@@ -89,6 +93,8 @@ class DjActivity : Activity() {
     }
 
     override fun onDestroy() {
+        stemGeneration++
+        stemWorker?.interrupt()
         handler.removeCallbacks(refresh)
         engine.close()
         sampleBank?.release()
@@ -126,12 +132,9 @@ class DjActivity : Activity() {
 
         val stage = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         stage.addView(deckA.root, LinearLayout.LayoutParams(0, MATCH, 1f))
-        stage.addView(buildCentre(), LinearLayout.LayoutParams(dp(126), MATCH))
+        stage.addView(buildCentre(), LinearLayout.LayoutParams(dp(216), MATCH))
         stage.addView(deckB.root, LinearLayout.LayoutParams(0, MATCH, 1f))
         root.addView(stage, LinearLayout.LayoutParams(MATCH, 0, 1f))
-
-        modePanel = FrameLayout(this)
-        root.addView(modePanel, LinearLayout.LayoutParams(MATCH, dp(112)))
         showMode(MODE_EQ)
 
         root.addView(buildCrossfaderBar(), LinearLayout.LayoutParams(MATCH, dp(52)))
@@ -182,43 +185,46 @@ class DjActivity : Activity() {
     }
 
     private fun buildCentre(): View {
-        masterMeter = LevelView(this).apply { color = Theme.GREEN }
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Theme.BG0)
-            setPadding(dp(3), dp(5), dp(3), dp(5))
+            background = Theme.rounded(Theme.BG1, dp(8).toFloat())
+            setPadding(dp(4), dp(5), dp(4), dp(5))
         }
         val tabs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         for (entry in listOf(
             MODE_EQ to "EQ", MODE_LOOP to "LOOP", MODE_FX to "FX",
             MODE_SAMPLE to "SMP", MODE_CUE to "CUE", MODE_STEM to "STEM",
         )) {
-            val button = btn(entry.second, Theme.DIM) { showMode(entry.first) }
+            val button = btn(entry.second, Theme.DIM, Theme.BG2) { showMode(entry.first) }
             modeButtons[entry.first] = button
-            tabs.addView(button, LinearLayout.LayoutParams(0, dp(28), 1f))
+            tabs.addView(button, LinearLayout.LayoutParams(0, dp(26), 1f).apply {
+                setMargins(dp(1), 0, dp(1), 0)
+            })
         }
         column.addView(tabs, LinearLayout.LayoutParams(MATCH, WRAP))
 
-        column.addView(text("MASTER", Theme.DIM, 10f, Gravity.CENTER),
-            LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(0, dp(6), 0, dp(2)) })
-        column.addView(masterMeter, LinearLayout.LayoutParams(dp(16), 0, 1f))
+        modePanel = FrameLayout(this)
+        column.addView(modePanel, LinearLayout.LayoutParams(MATCH, 0, 1f))
 
-        for (ui in deckUis) {
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(3), 0, 0)
-            }
-            row.addView(text(if (ui.index == 0) "A" else "B", ui.color, 11f),
-                LinearLayout.LayoutParams(WRAP, WRAP))
-            ui.meter = LevelView(this).apply { color = ui.color }
-            row.addView(ui.meter, LinearLayout.LayoutParams(0, dp(8), 1f).apply {
-                setMargins(dp(4), 0, dp(4), 0)
-            })
-            column.addView(row, LinearLayout.LayoutParams(MATCH, WRAP))
+        val meters = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(4), 0, 0)
         }
-        column.addView(text("MASTER BUS", Theme.DIM, 9f, Gravity.CENTER),
-            LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(0, dp(6), 0, 0) })
+        masterMeter = LevelView(this).apply { color = Theme.GREEN }
+        meters.addView(text("M", Theme.DIM, 9f), LinearLayout.LayoutParams(WRAP, WRAP))
+        meters.addView(masterMeter, LinearLayout.LayoutParams(dp(12), dp(30)).apply {
+            setMargins(dp(3), 0, dp(6), 0)
+        })
+        for (ui in deckUis) {
+            ui.meter = LevelView(this).apply { color = ui.color }
+            meters.addView(text(if (ui.index == 0) "A" else "B", ui.color, 9f),
+                LinearLayout.LayoutParams(WRAP, WRAP))
+            meters.addView(ui.meter, LinearLayout.LayoutParams(0, dp(8), 1f).apply {
+                setMargins(dp(3), 0, dp(6), 0)
+            })
+        }
+        column.addView(meters, LinearLayout.LayoutParams(MATCH, dp(34)))
         return column
     }
 
@@ -280,9 +286,10 @@ class DjActivity : Activity() {
                         "HI" -> deck.eqHigh = value * 2f
                         "MID" -> deck.eqMid = value * 2f
                         "LOW" -> deck.eqLow = value * 2f
+                        "FLT" -> deck.filter = value
                     }
                 }
-                cell.addView(fader, LinearLayout.LayoutParams(dp(30), 0, 1f))
+                cell.addView(fader, LinearLayout.LayoutParams(dp(18), 0, 1f))
                 cell.addView(text(band, Theme.DIM, 9f, Gravity.CENTER),
                     LinearLayout.LayoutParams(WRAP, WRAP))
                 panel.addView(cell, LinearLayout.LayoutParams(0, MATCH, 1f))
@@ -385,18 +392,27 @@ class DjActivity : Activity() {
             setPadding(dp(6), dp(4), dp(6), dp(4))
         }
         for (ui in deckUis) {
-            val group = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
+            val group = GridLayout(this).apply {
+                rowCount = 2
+                columnCount = 4
                 setBackgroundColor(Theme.BG2)
-                setPadding(dp(4), dp(4), dp(4), dp(4))
+                setPadding(dp(3), dp(3), dp(3), dp(3))
             }
             for (i in 0 until 8) {
                 val pad = btn((i + 1).toString(), if (i % 2 == 0) Theme.DECK_A else Theme.DECK_B) {
                     engine.decks[ui.index].hotCue(i)
                 }
-                group.addView(pad, LinearLayout.LayoutParams(0, MATCH, 1f).apply {
-                    setMargins(dp(2), 0, dp(2), 0)
-                })
+                group.addView(
+                    pad,
+                    GridLayout.LayoutParams(
+                        GridLayout.spec(i / 4, 1f),
+                        GridLayout.spec(i % 4, 1f),
+                    ).apply {
+                        width = 0
+                        height = MATCH
+                        setMargins(dp(2), dp(2), dp(2), dp(2))
+                    },
+                )
             }
             panel.addView(group, LinearLayout.LayoutParams(0, MATCH, 1f).apply {
                 setMargins(dp(2), 0, dp(2), 0)
@@ -407,16 +423,56 @@ class DjActivity : Activity() {
 
     private fun buildStemPanel(): View {
         val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             setBackgroundColor(Theme.BG1)
             setPadding(dp(6), dp(4), dp(6), dp(4))
         }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val source = btn("SRC ${if (stemSource == 0) "A" else "B"}", Theme.TEXT) { button ->
+            stemSource = 1 - stemSource
+            stemResult = null
+            stemGeneration++
+            stemWorker?.interrupt()
+            button.text = "SRC ${if (stemSource == 0) "A" else "B"}"
+            stemStatus?.text = if (engine.decks[stemSource].track == null) {
+                "LOAD SOURCE DECK"
+            } else if (stemBusy) {
+                "CANCELLING JOB"
+            } else {
+                "LOCAL DSP • VOCAL ESTIMATE"
+            }
+        }
+        val target = btn("TO ${if (stemTarget == 0) "A" else "B"}", Theme.ACCENT) { button ->
+            stemTarget = 1 - stemTarget
+            button.text = "TO ${if (stemTarget == 0) "A" else "B"}"
+        }
+        header.addView(source, LinearLayout.LayoutParams(dp(60), dp(26)))
+        header.addView(target, LinearLayout.LayoutParams(dp(50), dp(26)).apply {
+            setMargins(dp(3), 0, 0, 0)
+        })
+        val statusView = text(
+            if (stemBusy) "SEPARATING…" else if (stemResult == null) {
+                "VOCAL ESTIMATE • EXPERIMENTAL DSP"
+            } else {
+                "STEMS READY • EXPERIMENTAL"
+            },
+            Theme.DIM, 8f,
+        )
+        stemStatus = statusView
+        header.addView(statusView, LinearLayout.LayoutParams(0, WRAP, 1f).apply {
+            setMargins(dp(4), 0, 0, 0)
+        })
+        panel.addView(header, LinearLayout.LayoutParams(MATCH, WRAP))
+
         val grid = GridLayout(this).apply {
             rowCount = 2
             columnCount = 3
         }
         val labels = listOf(
-            "vocals" to "VOCALS", "beat" to "BEAT", "harmony" to "HARMONY",
+            "vocals" to "VOCAL", "beat" to "BEAT", "harmony" to "HARM",
             "no_vocals" to "NO VOC", "no_beat" to "NO BEAT", "no_harmony" to "NO HARM",
         )
         for ((index, entry) in labels.withIndex()) {
@@ -440,53 +496,75 @@ class DjActivity : Activity() {
                 },
             )
         }
-        panel.addView(grid, LinearLayout.LayoutParams(0, MATCH, 1f))
-
-        val side = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(6), 0, 0, 0)
-        }
-        val target = btn("TO ${if (stemTarget == 0) "A" else "B"}", Theme.ACCENT) { button ->
-            stemTarget = 1 - stemTarget
-            button.text = "TO ${if (stemTarget == 0) "A" else "B"}"
-        }
-        side.addView(target, LinearLayout.LayoutParams(MATCH, dp(30)))
-        val statusView = text(
-            if (stemBusy) "SEPARATING…" else if (stemResult == null) "TAP A PAD TO ANALYSE" else "STEMS READY",
-            Theme.DIM, 9f,
-        )
-        stemStatus = statusView
-        side.addView(statusView, LinearLayout.LayoutParams(MATCH, 0, 1f))
-        panel.addView(side, LinearLayout.LayoutParams(dp(112), MATCH))
+        panel.addView(grid, LinearLayout.LayoutParams(MATCH, 0, 1f))
         return panel
     }
 
     private fun startSeparation() {
         if (stemBusy) return
-        val source = deckUris[0] ?: deckUris[1]
-        if (source == null) {
+        val sourceTrack = engine.decks[stemSource].track
+        if (sourceTrack == null) {
             stemStatus?.text = "LOAD A TRACK FIRST"
             return
         }
+        val generation = ++stemGeneration
+        stemWorkerGeneration = generation
+        val cacheKey = deckUris[stemSource]?.toString()
+            ?: "deck-$stemSource-${sourceTrack.sampleRate}-${sourceTrack.frames}"
         stemBusy = true
-        stemStatus?.text = "SEPARATING…"
-        Thread {
-            val result = StemSeparator.separate(this, source) { progress ->
-                handler.post { stemStatus?.text = "SEPARATING $progress%" }
+        stemStatus?.text = "LOCAL DSP • STARTING"
+        stemWorker = Thread({
+            var failure: String? = null
+            val result = try {
+                StemSeparator.separate(
+                    this,
+                    sourceTrack,
+                    cacheKey,
+                    onProgress = { progress ->
+                    handler.post {
+                        if (generation == stemGeneration && !isDestroyed) {
+                            stemStatus?.text = "DSP SEPARATION $progress%"
+                        }
+                    }
+                    },
+                    shouldCancel = { generation != stemGeneration },
+                )
+            } catch (error: Exception) {
+                failure = error.message ?: error.javaClass.simpleName
+                null
             }
             handler.post {
-                stemBusy = false
+                if (stemWorkerGeneration == generation) {
+                    stemBusy = false
+                    stemWorkerGeneration = -1
+                    stemWorker = null
+                }
+                if (isDestroyed) return@post
+                if (generation != stemGeneration) {
+                    if (stemStatus?.text == "CANCELLING JOB") {
+                        stemStatus?.text = if (engine.decks[stemSource].track == null) {
+                            "LOAD SOURCE DECK"
+                        } else {
+                            "LOCAL DSP • VOCAL ESTIMATE"
+                        }
+                    }
+                    return@post
+                }
                 stemResult = result
-                stemStatus?.text = if (result == null) "SEPARATION FAILED" else "STEMS READY"
+                stemStatus?.text = when {
+                    result != null -> "STEMS READY • EXPERIMENTAL"
+                    failure != null -> "FAILED: ${(failure ?: "UNKNOWN").take(20)}"
+                    else -> "TRACK TOO SHORT"
+                }
             }
-        }.start()
+        }, "mixsphere-stem-separation").also { it.start() }
     }
 
     private fun playStem(file: File) {
         val ui = deckUis[stemTarget]
         ui.name.text = "LOADING STEM"
         Thread {
-            val decoded = AudioDecoder.decode(this, Uri.fromFile(file))
+            val decoded = AudioDecoder.decodeFile(file)
             handler.post {
                 if (decoded == null) {
                     ui.name.text = "STEM FAILED"
@@ -572,6 +650,9 @@ class DjActivity : Activity() {
         libraryOverlay.visibility = View.GONE
         deckUris[deckIndex] = uri
         stemResult = null
+        stemGeneration++
+        stemWorker?.interrupt()
+        if (deckIndex == stemSource) stemStatus?.text = "LOADING SOURCE"
         val ui = deckUis[deckIndex]
         ui.name.text = "LOADING…"
         Thread {
@@ -579,6 +660,7 @@ class DjActivity : Activity() {
             handler.post {
                 if (decoded == null) {
                     ui.name.text = "UNSUPPORTED FILE"
+                    if (deckIndex == stemSource) stemStatus?.text = "SOURCE LOAD FAILED"
                 } else {
                     engine.load(deckIndex, decoded)
                     val seconds = decoded.durationMs / 1000L
@@ -586,6 +668,9 @@ class DjActivity : Activity() {
                     ui.bpm.text = String.format("%.1f BPM", decoded.bpm)
                     ui.wave.setPeaks(decoded.peaks)
                     ui.loaded = true
+                    if (deckIndex == stemSource) {
+                        stemStatus?.text = "LOCAL DSP • VOCAL ESTIMATE"
+                    }
                 }
             }
         }.start()
@@ -654,6 +739,7 @@ class DjActivity : Activity() {
         lateinit var keyButton: Button
         lateinit var jog: JogView
         lateinit var tempoLabel: TextView
+        lateinit var keyNote: TextView
         var loaded = false
         var playing = false
         var keylock = false
@@ -684,16 +770,36 @@ class DjActivity : Activity() {
             })
             root.addView(header, LinearLayout.LayoutParams(MATCH, dp(34)))
 
-            jog = JogView(this@DjActivity, color, if (index == 0) "A" else "B")
-            jog.onScratchRate = { scratch ->
-                if (scratch == 0f) {
-                    engine.decks[index].tempo = rate
-                } else {
-                    engine.decks[index].tempo =
-                        (0.5f + scratch * 2f).toDouble().coerceIn(0.05, 1.5)
-                }
+            val jogZone = LinearLayout(this@DjActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(2), dp(3), dp(2), dp(3))
             }
-            root.addView(jog, LinearLayout.LayoutParams(MATCH, 0, 1f))
+            val pitchColumn = LinearLayout(this@DjActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+            val fader = VerticalFader(this@DjActivity, color)
+            fader.setValue(0.5f)
+            fader.onValue = { value ->
+                rate = 0.5 + value
+                engine.decks[index].tempo = rate
+            }
+            pitchColumn.addView(fader, LinearLayout.LayoutParams(dp(24), 0, 1f))
+            pitchColumn.addView(text("TEMPO", Theme.DIM, 8f, Gravity.CENTER),
+                LinearLayout.LayoutParams(WRAP, WRAP))
+            tempoLabel = text(rate.format(), Theme.TEXT, 9f, Gravity.CENTER).apply {
+                typeface = Typeface.MONOSPACE
+            }
+            pitchColumn.addView(tempoLabel, LinearLayout.LayoutParams(WRAP, WRAP))
+            jogZone.addView(pitchColumn, LinearLayout.LayoutParams(dp(34), MATCH))
+
+            jog = JogView(this@DjActivity, color, if (index == 0) "A" else "B")
+            jog.onScratch = { delta -> engine.decks[index].scratch(delta) }
+            jogZone.addView(jog, LinearLayout.LayoutParams(0, MATCH, 1f))
+            keyNote = text("KEY", color, 9f, Gravity.CENTER)
+            jogZone.addView(keyNote, LinearLayout.LayoutParams(dp(28), MATCH))
+            root.addView(jogZone, LinearLayout.LayoutParams(MATCH, 0, 1f))
 
             val transport = LinearLayout(this@DjActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -712,28 +818,7 @@ class DjActivity : Activity() {
                 setMargins(dp(3), 0, dp(3), 0)
             })
             transport.addView(keyButton, LinearLayout.LayoutParams(0, MATCH, 1f))
-            root.addView(transport, LinearLayout.LayoutParams(MATCH, dp(40)))
-
-            val pitch = LinearLayout(this@DjActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setBackgroundColor(Theme.BG1)
-                setPadding(dp(6), dp(3), dp(6), dp(3))
-            }
-            val fader = VerticalFader(this@DjActivity, color)
-            fader.setValue(0.5f)
-            fader.onValue = { value ->
-                rate = 0.5 + value
-                engine.decks[index].tempo = rate
-            }
-            pitch.addView(fader, LinearLayout.LayoutParams(dp(26), dp(62)))
-            pitch.addView(text("TEMPO", Theme.DIM, 10f),
-                LinearLayout.LayoutParams(WRAP, WRAP).apply { setMargins(dp(8), 0, dp(6), 0) })
-            tempoLabel = text(rate.format(), Theme.TEXT, 11f).apply {
-                typeface = Typeface.MONOSPACE
-            }
-            pitch.addView(tempoLabel)
-            root.addView(pitch, LinearLayout.LayoutParams(MATCH, dp(68)))
+            root.addView(transport, LinearLayout.LayoutParams(MATCH, dp(44)))
         }
 
         fun tick() {
@@ -741,7 +826,7 @@ class DjActivity : Activity() {
             wave.setProgress(deck.positionFraction)
             wave.setActive(playing)
             jog.setSpinning(playing)
-            jog.advance(250f * deck.tempo.toFloat())
+            jog.setPosition(deck.positionFraction)
             tempoLabel.text = rate.format()
             if (::meter.isInitialized) meter.setLevel(deck.level)
             playButton.setTextColor(if (playing) color else Theme.TEXT)
@@ -773,6 +858,7 @@ class DjActivity : Activity() {
             keylock = !keylock
             engine.decks[index].keylock = keylock
             keyButton.text = if (keylock) "KEY ON" else "KEY"
+            keyNote.text = if (keylock) "LOCK" else "KEY"
         }
     }
 
@@ -793,7 +879,7 @@ class DjActivity : Activity() {
         private const val MODE_SAMPLE = "SMP"
         private const val MODE_CUE = "CUE"
         private const val MODE_STEM = "STEM"
-        private val BANDS = listOf("VOL", "HI", "MID", "LOW")
+        private val BANDS = listOf("VOL", "HI", "MID", "LOW", "FLT")
         private val LOOP_BEATS = listOf(
             "1/4" to 0.25f, "1/2" to 0.5f, "1" to 1f,
             "2" to 2f, "4" to 4f, "8" to 8f,

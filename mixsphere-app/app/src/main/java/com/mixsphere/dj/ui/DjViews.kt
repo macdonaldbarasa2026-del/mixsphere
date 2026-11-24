@@ -77,11 +77,9 @@ class JogView(context: Context, private val color: Int, private val letter: Stri
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var angle = 0f
     private var lastAngle = 0f
-    private var lastTime = 0L
     private var dragging = false
     private var spinning = false
-    private var scratchRate = 0f
-    var onScratchRate: ((Float) -> Unit)? = null
+    var onScratch: ((Float) -> Unit)? = null
 
     fun setSpinning(value: Boolean) {
         if (spinning != value) {
@@ -90,9 +88,10 @@ class JogView(context: Context, private val color: Int, private val letter: Stri
         }
     }
 
-    fun advance(deltaFrames: Float) {
-        if (!dragging && spinning) {
-            angle = (angle + deltaFrames * 0.012f) % 360f
+    fun setPosition(fraction: Float) {
+        val next = fraction.coerceIn(0f, 1f) * (2f * PI.toFloat())
+        if (kotlin.math.abs(next - angle) > 0.01f) {
+            angle = next
             invalidate()
         }
     }
@@ -107,25 +106,18 @@ class JogView(context: Context, private val color: Int, private val letter: Stri
             MotionEvent.ACTION_DOWN -> {
                 dragging = true
                 lastAngle = a
-                lastTime = System.currentTimeMillis()
             }
             MotionEvent.ACTION_MOVE -> if (dragging) {
                 var delta = a - lastAngle
                 if (delta > PI) delta -= (2 * PI).toFloat()
                 if (delta < -PI) delta += (2 * PI).toFloat()
-                val now = System.currentTimeMillis()
-                val elapsed = max(1L, now - lastTime)
-                angle += Math.toDegrees(delta.toDouble()).toFloat()
-                scratchRate = (delta * 1000f / elapsed / (2f * PI.toFloat())).coerceIn(-0.5f, 0.5f)
-                onScratchRate?.invoke(scratchRate)
+                angle += delta
+                onScratch?.invoke(delta)
                 lastAngle = a
-                lastTime = now
                 invalidate()
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 dragging = false
-                scratchRate = 0f
-                onScratchRate?.invoke(0f)
             }
         }
         return true
@@ -161,7 +153,7 @@ class JogView(context: Context, private val color: Int, private val letter: Stri
                 paint,
             )
         }
-        paint.color = if (scratchRate != 0f) Theme.ACCENT else color
+        paint.color = if (dragging) Theme.ACCENT else color
         paint.strokeWidth = 5f
         canvas.drawArc(
             cx - radius * 0.93f, cy - radius * 0.93f,
