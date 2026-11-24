@@ -12,6 +12,9 @@ used. Built and signed entirely in GitHub Actions — never on the phone.
   - Centre mixer with EQ/LOOP/FX/SMP/CUE mode panels, per-deck and master VU,
     and an equal-power crossfader.
   - Device library browser (loads any format Android can decode).
+  - Real per-deck FX (filter, echo, flanger) with XY control.
+  - Offline stem separation into vocals / beat / harmony plus the three
+    "removed" mixes, with progress and direct deck loading.
   - 16 bundled CC0 transition samples.
   - Original adaptive launcher icon.
 - `.github/workflows/mixsphere-build.yml` — builds a signed release APK and

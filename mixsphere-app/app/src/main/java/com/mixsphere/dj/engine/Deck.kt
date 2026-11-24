@@ -6,6 +6,7 @@ import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 import kotlin.math.PI
 
 /** One deck. All control fields are safe to write from the UI thread;
@@ -22,6 +23,9 @@ class Deck(val index: Int) {
     @Volatile var eqLow = 1f
     @Volatile var eqMid = 1f
     @Volatile var eqHigh = 1f
+    @Volatile var fxType = 0
+    @Volatile var fxX = 0.5f
+    @Volatile var fxY = 0.5f
     @Volatile var cueFraction = 0f
     @Volatile var loopStart = -1f
     @Volatile var loopEnd = -1f
@@ -39,6 +43,13 @@ class Deck(val index: Int) {
     private var aLow = 0.08f
     private var aHigh = 0.45f
     private val sample = FloatArray(2)
+    private val delayL = FloatArray(8192)
+    private val delayR = FloatArray(8192)
+    private var delayIndex = 0
+    private var lfoPhase = 0f
+    private var filterL = 0f
+    private var filterR = 0f
+    private val fxOut = FloatArray(2)
 
     fun load(next: DecodedTrack?) {
         track = next
@@ -54,6 +65,12 @@ class Deck(val index: Int) {
         lowR = 0f
         highL = 0f
         highR = 0f
+        filterL = 0f
+        filterR = 0f
+        delayL.fill(0f)
+        delayR.fill(0f)
+        delayIndex = 0
+        lfoPhase = 0f
         level = 0f
         if (next != null) {
             val rate = next.sampleRate.toDouble()
@@ -65,7 +82,7 @@ class Deck(val index: Int) {
     fun seek(fraction: Float) {
         val current = track ?: return
         val f = fraction.coerceIn(0f, 1f)
-        position = f * current.frames
+        position = (f * current.frames).toDouble()
         outputTime = 0.0
         positionFraction = f
     }
@@ -92,6 +109,59 @@ class Deck(val index: Int) {
 
     fun setCueHere() {
         cueFraction = positionFraction
+    }
+
+    fun setFx(type: Int, x: Float, y: Float) {
+        fxType = type
+        fxX = x.coerceIn(0f, 1f)
+        fxY = y.coerceIn(0f, 1f)
+    }
+
+    private fun processFx(l: Float, r: Float) {
+        when (fxType) {
+            1 -> {
+                val cutoff = (abs(fxX - 0.5f) * 2f).coerceIn(0.02f, 1f)
+                val coefficient = cutoff * cutoff * 0.5f + 0.01f
+                filterL += coefficient * (l - filterL)
+                filterR += coefficient * (r - filterR)
+                if (fxX < 0.5f) {
+                    fxOut[0] = filterL
+                    fxOut[1] = filterR
+                } else {
+                    fxOut[0] = l - filterL
+                    fxOut[1] = r - filterR
+                }
+            }
+            2 -> {
+                val wet = fxX
+                val feedback = (fxY * 0.72f).coerceIn(0f, 0.75f)
+                val readIndex = (delayIndex - 1152 + delayL.size) % delayL.size
+                val delayedL = delayL[readIndex]
+                val delayedR = delayR[readIndex]
+                delayL[delayIndex] = l + delayedL * feedback
+                delayR[delayIndex] = r + delayedR * feedback
+                delayIndex = (delayIndex + 1) % delayL.size
+                fxOut[0] = l * (1f - wet * 0.35f) + delayedL * wet
+                fxOut[1] = r * (1f - wet * 0.35f) + delayedR * wet
+            }
+            3 -> {
+                lfoPhase += 0.0006f * (0.4f + fxY)
+                if (lfoPhase > 1f) lfoPhase -= 1f
+                val depth = 12f + fxX * 72f
+                val delayFrames = (depth * (0.5f + 0.5f * sin(2.0 * PI * lfoPhase)))
+                    .toInt().coerceAtLeast(1)
+                val readIndex = (delayIndex - delayFrames + delayL.size) % delayL.size
+                delayL[delayIndex] = l
+                delayR[delayIndex] = r
+                delayIndex = (delayIndex + 1) % delayL.size
+                fxOut[0] = (l + delayL[readIndex]) * 0.5f
+                fxOut[1] = (r + delayR[readIndex]) * 0.5f
+            }
+            else -> {
+                fxOut[0] = l
+                fxOut[1] = r
+            }
+        }
     }
 
     fun read(out: FloatArray, frames: Int, outputRate: Int) {
@@ -136,9 +206,13 @@ class Deck(val index: Int) {
             val trebleR = r - highR
             val midL = l - lowL - trebleL
             val midR = r - lowR - trebleR
+            processFx(
+                lowL * eqLow + midL * eqMid + trebleL * eqHigh,
+                lowR * eqLow + midR * eqMid + trebleR * eqHigh,
+            )
             val volume = gain * busGain
-            val mixedL = (lowL * eqLow + midL * eqMid + trebleL * eqHigh) * volume
-            val mixedR = (lowR * eqLow + midR * eqMid + trebleR * eqHigh) * volume
+            val mixedL = fxOut[0] * volume
+            val mixedR = fxOut[1] * volume
             out[2 * i] += mixedL
             out[2 * i + 1] += mixedR
             energy += mixedL * mixedL + mixedR * mixedR
@@ -147,7 +221,7 @@ class Deck(val index: Int) {
     }
 
     private fun seekFromAudio(fraction: Float, current: DecodedTrack) {
-        position = fraction * current.frames
+        position = fraction.toDouble() * current.frames
         outputTime = 0.0
         positionFraction = fraction
     }

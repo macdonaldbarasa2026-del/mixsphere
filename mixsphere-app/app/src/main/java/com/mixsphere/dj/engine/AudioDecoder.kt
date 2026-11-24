@@ -73,14 +73,6 @@ object AudioDecoder {
 
             val format = extractor.getTrackFormat(trackIndex)
             extractor.selectTrack(trackIndex)
-            val mime = format.getString(MediaFormat.KEY_MIME) ?: return null
-            if (mime == MediaFormat.MIMETYPE_AUDIO_RAW) {
-                return readRaw(extractor, format, outRate, outChannels, isFloat)
-            }
-            val codec = MediaCodec.createDecoderByType(mime)
-            codec.configure(format, null, null, 0)
-            codec.start()
-
             var outRate = if (format.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
                 format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             } else TARGET_RATE
@@ -89,6 +81,14 @@ object AudioDecoder {
             } else 2
             val isFloat = format.containsKey(MediaFormat.KEY_PCM_ENCODING) &&
                 format.getInteger(MediaFormat.KEY_PCM_ENCODING) == android.media.AudioFormat.ENCODING_PCM_FLOAT
+
+            val mime = format.getString(MediaFormat.KEY_MIME) ?: return null
+            if (mime == MediaFormat.MIMETYPE_AUDIO_RAW) {
+                return readRaw(extractor, format, outRate, outChannels, isFloat)
+            }
+            val codec = MediaCodec.createDecoderByType(mime)
+            codec.configure(format, null, null, 0)
+            codec.start()
 
             val chunks = ArrayList<ByteArray>()
             val info = MediaCodec.BufferInfo()
