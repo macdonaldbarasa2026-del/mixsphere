@@ -50,6 +50,9 @@ object AudioDecoder {
     private const val PEAK_BUCKETS = 1200
     private const val TAG = "MixsphereDecode"
 
+    private fun maxPcmBytes(rate: Int, channels: Int, isFloat: Boolean): Long =
+        MAX_SECONDS.toLong() * rate * channels * (if (isFloat) 4L else 2L)
+
     fun decode(context: Context, uri: Uri): DecodedTrack? {
         var temporary: File? = null
         return try {
@@ -127,8 +130,8 @@ object AudioDecoder {
             val chunks = ArrayList<ByteArray>()
             val info = MediaCodec.BufferInfo()
             var sawEos = false
-            var decodedBytes = 0
-            val byteLimit = MAX_SECONDS * TARGET_RATE * outChannels * 4
+            var decodedBytes = 0L
+            var truncated = false
 
             while (!sawEos) {
                 val inIndex = codec.dequeueInputBuffer(TIMEOUT_US)
@@ -158,12 +161,18 @@ object AudioDecoder {
                     }
                     if (outIndex < 0) break
                     val buffer = codec.getOutputBuffer(outIndex)
-                    if (buffer != null && info.size > 0 && decodedBytes < byteLimit) {
-                        val bytes = ByteArray(info.size.coerceAtMost(byteLimit - decodedBytes))
-                        buffer.position(info.offset)
-                        buffer.get(bytes)
-                        chunks.add(bytes)
-                        decodedBytes += bytes.size
+                    if (buffer != null && info.size > 0) {
+                        val remaining = (maxPcmBytes(outRate, outChannels, isFloat) - decodedBytes)
+                            .coerceAtLeast(0L)
+                        val copySize = minOf(info.size.toLong(), remaining).toInt()
+                        if (copySize < info.size) truncated = true
+                        if (copySize > 0) {
+                            val bytes = ByteArray(copySize)
+                            buffer.position(info.offset)
+                            buffer.get(bytes)
+                            chunks.add(bytes)
+                            decodedBytes += bytes.size
+                        }
                     }
                     codec.releaseOutputBuffer(outIndex, false)
                     if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) sawEos = true
@@ -173,6 +182,10 @@ object AudioDecoder {
             codec.release()
             extractor.release()
 
+            if (truncated) {
+                Log.e(TAG, "Track exceeds the $MAX_SECONDS-second decode limit")
+                return null
+            }
             if (chunks.isEmpty() || outRate <= 0) return null
             return toTrack(chunks, outRate, outChannels, isFloat)
         } catch (e: Exception) {
@@ -187,26 +200,39 @@ object AudioDecoder {
         channels: Int,
         isFloat: Boolean,
     ): DecodedTrack? {
-        val bytesPerSample = if (isFloat) 4 else 2
-        val maxBytes = MAX_SECONDS * rate * channels * bytesPerSample
+        val maxBytes = maxPcmBytes(rate, channels, isFloat)
         val chunks = ArrayList<ByteArray>()
         val scratch = ByteBuffer.allocateDirect(8192)
-        var total = 0
-        while (total < maxBytes) {
+        var total = 0L
+        var truncated = false
+        while (true) {
             scratch.clear()
             val size = extractor.readSampleData(scratch, 0)
             if (size < 0) break
-            val copySize = minOf(size, maxBytes - total)
+            val remaining = (maxBytes - total).coerceAtLeast(0L)
+            val copySize = minOf(size.toLong(), remaining).toInt()
+            if (copySize < size) {
+                truncated = true
+                break
+            }
             scratch.position(0)
             scratch.limit(copySize)
             val chunk = ByteArray(copySize)
             scratch.get(chunk)
             chunks.add(chunk)
             total += copySize
-            if (copySize < size) break
-            extractor.advance()
+            val hasMore = extractor.advance()
+            if (total >= maxBytes && hasMore) {
+                truncated = true
+                break
+            }
+            if (!hasMore) break
         }
         extractor.release()
+        if (truncated) {
+            Log.e(TAG, "Raw track exceeds the $MAX_SECONDS-second decode limit")
+            return null
+        }
         if (total <= 0) return null
         return toTrack(chunks, rate, channels, isFloat)
     }

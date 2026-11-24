@@ -17,8 +17,8 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.GridLayout
+import android.widget.ListView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import com.mixsphere.dj.data.LibraryTrack
@@ -49,6 +49,8 @@ class DjActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var content: FrameLayout
     private lateinit var libraryOverlay: FrameLayout
+    private lateinit var libraryStatus: TextView
+    private lateinit var libraryList: ListView
     private lateinit var status: TextView
     private lateinit var crossfaderView: CrossfaderView
     private lateinit var masterMeter: LevelView
@@ -68,6 +70,8 @@ class DjActivity : Activity() {
     private var stemStatus: TextView? = null
     private val deckUris = arrayOf<Uri?>(null, null)
     private val deckLoadGeneration = IntArray(2)
+    private var libraryTracks: List<LibraryTrack>? = null
+    private var libraryLoadGeneration = 0
 
     private val refresh = object : Runnable {
         override fun run() {
@@ -86,6 +90,26 @@ class DjActivity : Activity() {
         }
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == STORAGE_PERMISSION_REQUEST &&
+            grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
+        ) {
+            libraryTracks = null
+            if (::libraryOverlay.isInitialized && libraryOverlay.visibility == View.VISIBLE) {
+                loadLibrary(forceRefresh = true)
+            }
+        } else if (requestCode == STORAGE_PERMISSION_REQUEST &&
+            ::libraryStatus.isInitialized && libraryOverlay.visibility == View.VISIBLE
+        ) {
+            libraryStatus.text = "AUDIO ACCESS DENIED — GRANT PERMISSION IN SETTINGS"
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         engine = MixerEngine(OUTPUT_RATE)
@@ -101,6 +125,7 @@ class DjActivity : Activity() {
         stemGeneration++
         stemWorker?.interrupt()
         for (index in deckLoadGeneration.indices) deckLoadGeneration[index]++
+        libraryLoadGeneration++
         handler.removeCallbacks(refresh)
         engine.close()
         sampleBank?.release()
@@ -550,44 +575,104 @@ class DjActivity : Activity() {
         }
         val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         header.addView(text("TRACK LIBRARY", Theme.ACCENT, 13f), LinearLayout.LayoutParams(0, WRAP, 1f))
+        header.addView(btn("REFRESH", Theme.TEXT, Theme.BG2) { loadLibrary(forceRefresh = true) },
+            LinearLayout.LayoutParams(WRAP, dp(30)).apply { setMargins(0, 0, dp(4), 0) })
         header.addView(btn("CLOSE", Theme.TEXT, Theme.BG2) { libraryOverlay.visibility = View.GONE },
             LinearLayout.LayoutParams(WRAP, dp(30)))
         card.addView(header, LinearLayout.LayoutParams(MATCH, WRAP))
-        val scroller = ScrollView(this)
-        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        scroller.addView(list, FrameLayout.LayoutParams(MATCH, WRAP))
-        card.addView(scroller, LinearLayout.LayoutParams(MATCH, 0, 1f))
-        val items = TrackLibrary.load(this)
-        if (items.isEmpty()) {
-            list.addView(text("NO AUDIO FOUND — GRANT STORAGE ACCESS", Theme.DIM, 11f, Gravity.CENTER))
+        libraryStatus = text("OPEN LIBRARY TO SCAN MUSIC", Theme.DIM, 11f, Gravity.CENTER)
+        card.addView(libraryStatus, LinearLayout.LayoutParams(MATCH, dp(34)))
+        libraryList = ListView(this).apply {
+            divider = Theme.rounded(Theme.BG0)
+            dividerHeight = dp(1)
+            adapter = null
         }
-        for (item in items) list.addView(libraryRow(item))
+        card.addView(libraryList, LinearLayout.LayoutParams(MATCH, 0, 1f))
         overlay.addView(card, FrameLayout.LayoutParams(dp(720), MATCH, Gravity.CENTER))
         return overlay
     }
 
-    private fun libraryRow(item: LibraryTrack): View {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Theme.BG2)
-            setPadding(dp(8), dp(6), dp(8), dp(6))
-        }
-        val label = text("${item.title} — ${item.artist}", Theme.TEXT, 11f)
-        label.setSingleLine(true)
-        row.addView(label, LinearLayout.LayoutParams(0, WRAP, 1f))
-        row.addView(btn("A", Theme.DECK_A, Theme.BG1) { loadFromUri(item.uri, 0) },
-            LinearLayout.LayoutParams(dp(40), dp(30)))
-        row.addView(btn("B", Theme.DECK_B, Theme.BG1) { loadFromUri(item.uri, 1) },
-            LinearLayout.LayoutParams(dp(40), dp(30)).apply { setMargins(dp(4), 0, 0, 0) })
-        return row
+    private fun openLibrary() {
+        libraryOverlay.visibility = View.VISIBLE
+        loadLibrary()
     }
 
-    private fun openLibrary() {
-        libraryOverlay.removeAllViews()
-        val card = buildLibraryOverlay().getChildAt(0)
-        libraryOverlay.addView(card, FrameLayout.LayoutParams(dp(720), MATCH, Gravity.CENTER))
-        libraryOverlay.visibility = View.VISIBLE
+    private fun loadLibrary(forceRefresh: Boolean = false) {
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_AUDIO
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+        if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+            libraryStatus.text = "AUDIO ACCESS REQUIRED — GRANT PERMISSION IN SETTINGS"
+            libraryList.adapter = null
+            return
+        }
+        if (!forceRefresh) {
+            libraryTracks?.let {
+                showLibraryTracks(it)
+                return
+            }
+        }
+
+        val generation = ++libraryLoadGeneration
+        libraryStatus.text = "SCANNING MUSIC LIBRARY…"
+        libraryList.adapter = null
+        val context = applicationContext
+        Thread({
+            val result = try {
+                TrackLibrary.load(context) to null
+            } catch (error: Exception) {
+                null to error
+            }
+            handler.post {
+                if (isDestroyed || generation != libraryLoadGeneration) return@post
+                val (tracks, error) = result
+                if (error != null) {
+                    libraryStatus.text = "LIBRARY SCAN FAILED: ${error.message ?: "UNKNOWN ERROR"}"
+                    libraryList.adapter = null
+                } else {
+                    libraryTracks = tracks
+                    showLibraryTracks(tracks.orEmpty())
+                }
+            }
+        }, "mixsphere-library-scan").start()
+    }
+
+    private fun showLibraryTracks(tracks: List<LibraryTrack>) {
+        if (tracks.isEmpty()) {
+            libraryStatus.text = "NO AUDIO TRACKS FOUND"
+            libraryList.adapter = null
+            return
+        }
+        libraryStatus.text = "${tracks.size} TRACKS"
+        libraryList.adapter = object : android.widget.BaseAdapter() {
+            override fun getCount(): Int = tracks.size
+            override fun getItem(position: Int): LibraryTrack = tracks[position]
+            override fun getItemId(position: Int): Long = position.toLong()
+
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val item = getItem(position)
+                val row = (convertView as? LinearLayout) ?: LinearLayout(this@DjActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setBackgroundColor(Theme.BG2)
+                    setPadding(dp(8), dp(6), dp(8), dp(6))
+                    addView(text("", Theme.TEXT, 11f).apply { setSingleLine(true) },
+                        LinearLayout.LayoutParams(0, WRAP, 1f))
+                    addView(btn("A", Theme.DECK_A, Theme.BG1) {},
+                        LinearLayout.LayoutParams(dp(40), dp(30)))
+                    addView(btn("B", Theme.DECK_B, Theme.BG1) {},
+                        LinearLayout.LayoutParams(dp(40), dp(30)).apply {
+                            setMargins(dp(4), 0, 0, 0)
+                        })
+                }
+                (row.getChildAt(0) as TextView).text = "${item.title} — ${item.artist}"
+                (row.getChildAt(1) as Button).setOnClickListener { loadFromUri(item.uri, 0) }
+                (row.getChildAt(2) as Button).setOnClickListener { loadFromUri(item.uri, 1) }
+                return row
+            }
+        }
     }
 
     private fun loadFromUri(uri: Uri, deckIndex: Int) {
@@ -702,7 +787,7 @@ class DjActivity : Activity() {
             Manifest.permission.READ_EXTERNAL_STORAGE
         }
         if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(permission), 1)
+            requestPermissions(arrayOf(permission), STORAGE_PERMISSION_REQUEST)
         }
     }
 
@@ -868,6 +953,7 @@ class DjActivity : Activity() {
 
     companion object {
         private const val REQUEST_LOAD = 42
+        private const val STORAGE_PERMISSION_REQUEST = 1
         private const val OUTPUT_RATE = 48_000
         private const val PAGE_HOME = "HOME"
         private const val PAGE_EQ = "EQ"
