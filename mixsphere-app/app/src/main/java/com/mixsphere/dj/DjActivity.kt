@@ -290,9 +290,9 @@ class DjActivity : Activity() {
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             row.addView(text(if (ui.index == 0) "A" else "B", ui.color, 11f),
                 LinearLayout.LayoutParams(dp(20), MATCH, Gravity.CENTER_VERTICAL))
-            for (beats in LOOP_BEATS) {
-                row.addView(btn(beats, Theme.TEXT) {
-                    setLoop(ui.index, beats.toFloat())
+            for (entry in LOOP_BEATS) {
+                row.addView(btn(entry.first, Theme.TEXT) {
+                    setLoop(ui.index, entry.second)
                 }, LinearLayout.LayoutParams(0, dp(40), 1f).apply {
                     setMargins(dp(2), 0, dp(2), 0)
                 })
@@ -508,10 +508,10 @@ class DjActivity : Activity() {
         }
 
     private fun btn(value: String, color: Int, onClick: (Button) -> Unit): Button =
-        Theme.button(this, value, color, onClick)
+        Theme.button(this, value, color, onClick = onClick)
 
     private fun btn(value: String, color: Int, background: Int, onClick: (Button) -> Unit): Button =
-        Theme.button(this, value, color, background, onClick)
+        Theme.button(this, value, color, background, onClick = onClick)
 
     private inner class DeckUi(val index: Int) {
         val color = if (index == 0) Theme.DECK_A else Theme.DECK_B
@@ -658,6 +658,9 @@ class DjActivity : Activity() {
         private const val MODE_SAMPLE = "SMP"
         private const val MODE_CUE = "CUE"
         private val BANDS = listOf("VOL", "HI", "MID", "LOW")
-        private val LOOP_BEATS = listOf("1/4", "1/2", "1", "2", "4", "8")
+        private val LOOP_BEATS = listOf(
+            "1/4" to 0.25f, "1/2" to 0.5f, "1" to 1f,
+            "2" to 2f, "4" to 4f, "8" to 8f,
+        )
     }
 }

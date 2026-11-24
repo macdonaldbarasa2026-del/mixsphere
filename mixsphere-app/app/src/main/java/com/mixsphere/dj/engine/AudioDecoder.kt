@@ -74,6 +74,9 @@ object AudioDecoder {
             val format = extractor.getTrackFormat(trackIndex)
             extractor.selectTrack(trackIndex)
             val mime = format.getString(MediaFormat.KEY_MIME) ?: return null
+            if (mime == MediaFormat.MIMETYPE_AUDIO_RAW) {
+                return readRaw(extractor, format, outRate, outChannels, isFloat)
+            }
             val codec = MediaCodec.createDecoderByType(mime)
             codec.configure(format, null, null, 0)
             codec.start()
@@ -141,6 +144,35 @@ object AudioDecoder {
         } catch (e: Exception) {
             return null
         }
+    }
+
+    private fun readRaw(
+        extractor: MediaExtractor,
+        format: MediaFormat,
+        rate: Int,
+        channels: Int,
+        isFloat: Boolean,
+    ): DecodedTrack? {
+        val maxBytes = MAX_SECONDS * rate * channels * 4
+        val joined = ByteBuffer.allocate(maxBytes).order(ByteOrder.LITTLE_ENDIAN)
+        val scratch = ByteBuffer.allocateDirect(8192)
+        var total = 0
+        while (total < maxBytes) {
+            scratch.clear()
+            val size = extractor.readSampleData(scratch, 0)
+            if (size < 0) break
+            if (total + size > maxBytes) break
+            scratch.limit(size)
+            joined.put(scratch)
+            total += size
+            extractor.advance()
+        }
+        extractor.release()
+        if (total <= 0) return null
+        val bytes = ByteArray(total)
+        joined.rewind()
+        joined.get(bytes)
+        return toTrack(listOf(bytes), rate, channels, isFloat)
     }
 
     private fun toTrack(chunks: List<ByteArray>, rate: Int, channels: Int, isFloat: Boolean): DecodedTrack {
